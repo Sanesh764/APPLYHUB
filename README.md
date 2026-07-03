@@ -830,31 +830,31 @@ Allowed statuses: `saved`, `applied`, `pending`, `interview`, `rejected`, `offer
 
 ### Dashboard
 
-![Dashboard analytics, charts, and automation panel](./docs/screenshots/dashboard.png)
+![Dashboard analytics, charts, and automation panel](./frontend/public/Dashboard.png)
 
 ### Job Search
 
-![Job search with filters and AI match scores](./docs/screenshots/job-search.png)
+![Job search with filters and AI match scores](./frontend/public/search_job.png)
 
 ### Resume Upload
 
-![Drag-and-drop resume upload with version history](./docs/screenshots/resume-upload.png)
+![Drag-and-drop resume upload with version history](./frontend/public/resume.png)
 
 ### ATS Analysis
 
-![ATS score gauge, skill gaps, and AI suggestions](./docs/screenshots/ats-analysis.png)
+![ATS score gauge, skill gaps, and AI suggestions](./frontend/public/resume.png)
 
 ### Application Tracker
 
-![Kanban-style application pipeline](./docs/screenshots/tracker.png)
+![Kanban-style application pipeline](./frontend/public/tracker.png)
 
 ### Profile & Sessions
 
-![Account settings and active device sessions](./docs/screenshots/profile.png)
+![Account settings and active device sessions](./frontend/public/profile.png)
 
 ### Admin Dashboard
 
-![Admin user management and audit logs](./docs/screenshots/admin-dashboard.png)
+![Admin user management and audit logs](./frontend/public/admin_dash_board.png)
 
 ---
 
