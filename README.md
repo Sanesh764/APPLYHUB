@@ -71,7 +71,7 @@ B.Tech Computer Science student passionate about building scalable web applicati
   <a href="https://x.com/Sanesh847">
     <img src="https://img.shields.io/badge/X-@Sanesh847-000000?style=for-the-badge&logo=x&logoColor=white" alt="Twitter / X" />
   </a>
-  <a href="https://github.com/Sanesh764">
+  <a href="https://main.d3add5rrxtdy8u.amplifyapp.com/">
     <img src="https://img.shields.io/badge/Portfolio-GitHub_Projects-6E5494?style=for-the-badge&logo=github&logoColor=white" alt="Portfolio" />
   </a>
 </p>
