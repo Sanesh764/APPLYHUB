@@ -26,7 +26,7 @@ app.use(helmet());
 // 2. CORS configuration (allowing credentials for secure HttpOnly cookie exchange)
 const allowedOrigins = [
   process.env.FRONTEND_URL || "http://localhost:5173",
-  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5173","https://main.ddzv29gajckkr.amplifyapp.com",
 ];
 
 app.use(

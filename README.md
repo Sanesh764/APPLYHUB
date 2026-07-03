@@ -10,7 +10,7 @@
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![License](https://img.shields.io/badge/License-ISC-blue?style=for-the-badge)](./backend/package.json)
 
-[Live Demo](#) · [Report Bug](https://github.com/Sanesh764/APPLYHUB/issues) · [Request Feature](https://github.com/Sanesh764/APPLYHUB/issues)
+[Live Demo](#) · [Report Bug](https://main.ddzv29gajckkr.amplifyapp.com) · [Request Feature](https://github.com/Sanesh764/APPLYHUB/issues)
 
 </div>
 
