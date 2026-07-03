@@ -6,6 +6,7 @@ const { protect } = require("../middleware/auth");
 // Guard all job routes
 router.use(protect);
 
+router.get("/providers/health", jobController.getProvidersHealth);
 router.get("/", jobController.searchJobs);
 router.post("/seed", jobController.seedJobs);
 router.get("/:jobId", jobController.getJobDetails);

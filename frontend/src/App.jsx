@@ -5,6 +5,7 @@ import { AuthProvider } from "./contexts/AuthContext";
 import { useAuth } from "./hooks/useAuth";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminRoute from "./components/AdminRoute";
+import AppFooter from "./components/layout/AppFooter";
 
 // Pages
 import Login from "./pages/Login";
@@ -115,6 +116,7 @@ const DashboardLayout = ({ children }) => {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col">{children}</main>
+      <AppFooter />
     </div>
   );
 };
@@ -149,6 +151,7 @@ const AppRoutes = () => {
               <Dashboard />
             </DashboardLayout>
           </ProtectedRoute>
+          
         }
       />
       <Route

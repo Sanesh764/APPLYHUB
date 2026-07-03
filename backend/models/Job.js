@@ -23,6 +23,21 @@ const JobSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
+    state: {
+      type: String,
+      default: "",
+      index: true,
+    },
+    city: {
+      type: String,
+      default: "",
+      index: true,
+    },
+    jobType: {
+      type: String,
+      default: "full-time",
+      index: true,
+    },
     workMode: {
       type: String,
       enum: ["remote", "hybrid", "onsite"],

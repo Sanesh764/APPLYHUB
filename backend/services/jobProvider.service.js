@@ -20,16 +20,95 @@ class BaseJobProvider {
   }
 
   /**
-   * Sanitize text descriptions by stripping html tags
+   * Sanitize text descriptions by stripping HTML tags
    */
   cleanHTML(str) {
     if (!str) return "";
     return str.replace(/<\/?[^>]+(>|$)/g, " ").trim();
   }
+
+  /**
+   * Strict verification that a job is located in India
+   */
+  isLocatedInIndia(locationText) {
+    if (!locationText) return false;
+    const text = locationText.toString().toLowerCase();
+    
+    // Check for explicit India text or prominent Indian tech hubs
+    return (
+      text.includes("india") ||
+      text.includes("bangalore") ||
+      text.includes("bengaluru") ||
+      text.includes("mumbai") ||
+      text.includes("delhi") ||
+      text.includes("new delhi") ||
+      text.includes("gurgaon") ||
+      text.includes("gurugram") ||
+      text.includes("noida") ||
+      text.includes("pune") ||
+      text.includes("hyderabad") ||
+      text.includes("chennai") ||
+      text.includes("kolkata") ||
+      text.includes("ahmedabad") ||
+      text.includes("jaipur") ||
+      text.includes("kochi") ||
+      text.includes("trivandrum") ||
+      text.includes(", in")
+    );
+  }
+
+  /**
+   * Parse City and State from a composite location string
+   */
+  parseStateAndCity(locationText) {
+    let city = "";
+    let state = "";
+    if (!locationText) return { city, state };
+
+    // Strip "India" suffix
+    const cleanText = locationText.toString().replace(/,\s*india/i, "").trim();
+    const parts = cleanText.split(",").map(p => p.trim());
+    
+    if (parts.length >= 2) {
+      city = parts[0];
+      state = parts[1];
+    } else if (parts.length === 1) {
+      city = parts[0];
+    }
+
+    // Normalize Bangalore
+    if (city.toLowerCase() === "bangalore") city = "Bengaluru";
+
+    return { city, state };
+  }
+
+  /**
+   * Filter out external relocation offerings outside India
+   */
+  requiresForeignRelocation(descriptionText, titleText) {
+    const text = ((titleText || "") + " " + (descriptionText || "")).toLowerCase();
+    
+    // Check if the job requires relocating to USA, Europe, Germany, UK, Canada, Australia, etc.
+    const relocationKeywords = ["relocate to", "relocation to", "relocation offered to"];
+    const hasRelocationKeyword = relocationKeywords.some(kw => text.includes(kw));
+
+    if (hasRelocationKeyword) {
+      // Exclude if it specifies target destination outside India
+      const foreignDestinations = ["germany", "usa", "us", "united states", "london", "uk", "united kingdom", "canada", "australia", "berlin", "singapore"];
+      const isForeignDest = foreignDestinations.some(dest => text.includes(dest));
+      const isIndiaDest = text.includes("relocate to india") || text.includes("relocation within india") || text.includes("india-wide");
+      
+      if (isForeignDest && !isIndiaDest) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
 }
 
 // -----------------------------------------------------------------------------
-// Adzuna Search Provider
+// Adzuna India Search Provider
 // -----------------------------------------------------------------------------
 class AdzunaJobProvider extends BaseJobProvider {
   constructor() {
@@ -43,47 +122,85 @@ class AdzunaJobProvider extends BaseJobProvider {
     if (!this.isEnabled) return [];
 
     try {
-      const country = filters.country || "us";
       const page = 1;
+      let url = `https://api.adzuna.com/v1/api/jobs/in/search/${page}?app_id=${this.appId}&app_key=${this.appKey}&results_per_page=30`;
       
-      let url = `https://api.adzuna.com/v1/api/jobs/${country}/search/${page}?app_id=${this.appId}&app_key=${this.appKey}&results_per_page=10`;
-      
-      if (filters.query) url += `&what=${encodeURIComponent(filters.query)}`;
-      if (filters.location) url += `&where=${encodeURIComponent(filters.location)}`;
-      if (filters.salary) url += `&salary_min=${Number(filters.salary)}`;
+      if (filters.query) {
+        url += `&what=${encodeURIComponent(filters.query)}`;
+      }
+      if (filters.location) {
+        url += `&where=${encodeURIComponent(filters.location)}`;
+      }
+      if (filters.salary) {
+        url += `&salary_min=${Number(filters.salary)}`;
+      }
 
-      logger.info(`Adzuna Provider: Querying Adzuna API at country "${country}"...`);
+      logger.info("Adzuna India Provider: Querying Adzuna India API endpoint...");
       const response = await fetch(url, { headers: this.headers, signal: AbortSignal.timeout(5000) });
       
       if (!response.ok) {
-        logger.warn(`Adzuna API returned HTTP status ${response.status}`);
+        logger.warn(`Adzuna India API returned HTTP status ${response.status}`);
         return [];
       }
 
       const data = await response.json();
       if (!data || !data.results) return [];
 
-      return data.results.map((item) => {
+      const mappedJobs = [];
+
+      for (const item of data.results) {
+        const title = this.cleanHTML(item.title);
+        const description = this.cleanHTML(item.description);
+
+        // Exclude foreign relocation requirements
+        if (this.requiresForeignRelocation(description, title)) {
+          continue;
+        }
+
+        // Verify the location display name is inside India
+        const locationName = item.location.display_name || "India";
+        if (!this.isLocatedInIndia(locationName)) {
+          continue;
+        }
+
         let workMode = "onsite";
-        const titleLower = item.title.toLowerCase();
-        const descLower = item.description.toLowerCase();
-        
-        if (titleLower.includes("remote") || descLower.includes("remote")) {
+        const textLower = (title + " " + description).toLowerCase();
+        if (textLower.includes("remote")) {
           workMode = "remote";
-        } else if (titleLower.includes("hybrid") || descLower.includes("hybrid")) {
+        } else if (textLower.includes("hybrid")) {
           workMode = "hybrid";
         }
 
-        return {
+        // Extract state and city from location area array
+        let state = "";
+        let city = "";
+        if (item.location && item.location.area && Array.isArray(item.location.area)) {
+          state = item.location.area[1] || "";
+          city = item.location.area[2] || item.location.area[3] || item.location.display_name || "";
+        } else {
+          const parsed = this.parseStateAndCity(locationName);
+          city = parsed.city;
+          state = parsed.state;
+        }
+
+        let jobType = "full-time";
+        if (item.contract_time) {
+          jobType = item.contract_time.replace("_", "-");
+        }
+
+        mappedJobs.push({
           id: `adzuna_${item.id}`,
-          title: this.cleanHTML(item.title),
+          title,
           companyName: item.company.display_name,
           companyLogo: "https://images.unsplash.com/photo-1549923746-c502d488b3ea?auto=format&fit=crop&w=120&h=120&q=80",
-          location: item.location.display_name,
+          location: locationName,
+          state,
+          city,
           workMode,
           salary: item.salary_min || item.salary_max || null,
           experienceLevel: "Mid-Senior",
-          description: this.cleanHTML(item.description),
+          jobType,
+          description,
           benefits: [],
           requirements: [],
           source: "adzuna",
@@ -91,17 +208,19 @@ class AdzunaJobProvider extends BaseJobProvider {
           postedDate: new Date(item.created),
           applyUrl: item.redirect_url,
           isAutoSupported: false,
-        };
-      });
+        });
+      }
+
+      return mappedJobs;
     } catch (error) {
-      logger.error("Adzuna Provider: API failed", { error: error.message });
+      logger.error("Adzuna India Provider: API failed", { error: error.message });
       return [];
     }
   }
 }
 
 // -----------------------------------------------------------------------------
-// Remotive Search Provider (Remote jobs)
+// Remotive Search Provider (Indian target filter)
 // -----------------------------------------------------------------------------
 class RemotiveJobProvider extends BaseJobProvider {
   constructor() {
@@ -110,13 +229,13 @@ class RemotiveJobProvider extends BaseJobProvider {
 
   async searchJobs(filters) {
     try {
-      let url = "https://remotive.com/api/remote-jobs?limit=15";
+      let url = "https://remotive.com/api/remote-jobs?limit=50";
       
       if (filters.query) {
         url += `&search=${encodeURIComponent(filters.query)}`;
       }
 
-      logger.info("Remotive Provider: Fetching remote developer jobs...");
+      logger.info("Remotive India Provider: Querying remote developer feeds...");
       const response = await fetch(url, { headers: this.headers, signal: AbortSignal.timeout(5000) });
       
       if (!response.ok) {
@@ -127,33 +246,58 @@ class RemotiveJobProvider extends BaseJobProvider {
       const data = await response.json();
       if (!data || !data.jobs) return [];
 
-      return data.jobs.map((item) => ({
-        id: `remotive_${item.id}`,
-        title: item.title,
-        companyName: item.company_name,
-        companyLogo: item.company_logo || "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=120&h=120&q=80",
-        location: item.candidate_required_location || "Worldwide (Remote)",
-        workMode: "remote",
-        salary: item.salary || null,
-        experienceLevel: "Mid-Senior",
-        description: this.cleanHTML(item.description),
-        benefits: [],
-        requirements: item.tags || [],
-        source: "remotive",
-        externalId: item.id.toString(),
-        postedDate: new Date(item.publication_date),
-        applyUrl: item.url,
-        isAutoSupported: false,
-      }));
+      const mappedJobs = [];
+
+      for (const item of data.jobs) {
+        const requiredLocation = item.candidate_required_location || "";
+        
+        // Remotive only if they explicitly provide jobs located in India
+        if (!this.isLocatedInIndia(requiredLocation)) {
+          continue;
+        }
+
+        const title = item.title;
+        const description = this.cleanHTML(item.description);
+
+        if (this.requiresForeignRelocation(description, title)) {
+          continue;
+        }
+
+        const parsed = this.parseStateAndCity(requiredLocation);
+
+        mappedJobs.push({
+          id: `remotive_${item.id}`,
+          title,
+          companyName: item.company_name,
+          companyLogo: item.company_logo || "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=120&h=120&q=80",
+          location: requiredLocation,
+          state: parsed.state,
+          city: parsed.city,
+          workMode: "remote",
+          salary: item.salary || null,
+          experienceLevel: "Mid-Senior",
+          jobType: item.job_type || "full-time",
+          description,
+          benefits: [],
+          requirements: item.tags || [],
+          source: "remotive",
+          externalId: item.id.toString(),
+          postedDate: new Date(item.publication_date),
+          applyUrl: item.url,
+          isAutoSupported: false,
+        });
+      }
+
+      return mappedJobs;
     } catch (error) {
-      logger.error("Remotive Provider: API failed", { error: error.message });
+      logger.error("Remotive India Provider: API failed", { error: error.message });
       return [];
     }
   }
 }
 
 // -----------------------------------------------------------------------------
-// Arbeitnow Search Provider (Germany-based listings)
+// Arbeitnow Search Provider (Germany-centric, usually fully filtered out)
 // -----------------------------------------------------------------------------
 class ArbeitnowJobProvider extends BaseJobProvider {
   constructor() {
@@ -163,7 +307,7 @@ class ArbeitnowJobProvider extends BaseJobProvider {
   async searchJobs(filters) {
     try {
       const url = "https://www.arbeitnow.com/api/job-board-api";
-      logger.info("Arbeitnow Provider: Fetching Germany job board listings...");
+      logger.info("Arbeitnow India Provider: Fetching Germany job feed...");
       const response = await fetch(url, { headers: this.headers, signal: AbortSignal.timeout(5000) });
 
       if (!response.ok) {
@@ -176,18 +320,22 @@ class ArbeitnowJobProvider extends BaseJobProvider {
 
       let listings = data.data;
 
+      // Filter locally for India location
+      listings = listings.filter((item) => this.isLocatedInIndia(item.location));
+
       if (filters.query) {
-        const queryLower = filters.query.toLowerCase();
+        const queryLower = (filters.query || "").toLowerCase();
         listings = listings.filter(
           (j) =>
-            j.title.toLowerCase().includes(queryLower) ||
-            j.description.toLowerCase().includes(queryLower)
+            (j.title || "").toLowerCase().includes(queryLower) ||
+            (j.description || "").toLowerCase().includes(queryLower)
         );
       }
 
       return listings.map((item) => {
+        const parsed = this.parseStateAndCity(item.location);
         let workMode = "onsite";
-        if (item.title.toLowerCase().includes("remote") || item.description.toLowerCase().includes("remote")) {
+        if ((item.title || "").toLowerCase().includes("remote") || (item.description || "").toLowerCase().includes("remote")) {
           workMode = "remote";
         }
 
@@ -196,10 +344,13 @@ class ArbeitnowJobProvider extends BaseJobProvider {
           title: item.title,
           companyName: item.company_name,
           companyLogo: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=120&h=120&q=80",
-          location: item.location || "Germany",
+          location: item.location || "India",
+          state: parsed.state,
+          city: parsed.city,
           workMode,
           salary: null,
           experienceLevel: "Mid-level",
+          jobType: "full-time",
           description: this.cleanHTML(item.description),
           benefits: [],
           requirements: item.tags || [],
@@ -211,14 +362,14 @@ class ArbeitnowJobProvider extends BaseJobProvider {
         };
       });
     } catch (error) {
-      logger.error("Arbeitnow Provider: API failed", { error: error.message });
+      logger.error("Arbeitnow India Provider: API failed", { error: error.message });
       return [];
     }
   }
 }
 
 // -----------------------------------------------------------------------------
-// Greenhouse Board Search Provider
+// Greenhouse Board Search Provider (India target filter)
 // -----------------------------------------------------------------------------
 class GreenhouseJobProvider extends BaseJobProvider {
   constructor() {
@@ -233,48 +384,68 @@ class GreenhouseJobProvider extends BaseJobProvider {
     for (const board of boards) {
       try {
         const url = `https://boards-api.greenhouse.io/v1/boards/${board}/jobs?content=true`;
-        logger.info(`Greenhouse Provider: Fetching public board for "${board}"...`);
+        logger.info(`Greenhouse India Provider: Fetching public board for "${board}"...`);
         const response = await fetch(url, { headers: this.headers, signal: AbortSignal.timeout(4000) });
 
         if (!response.ok) continue;
 
         const data = await response.json();
         if (data && data.jobs) {
-          const mapped = data.jobs.map((item) => ({
-            id: `greenhouse_${board}_${item.id}`,
-            title: item.title,
-            companyName: board.charAt(0).toUpperCase() + board.slice(1),
-            companyLogo: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=120&h=120&q=80",
-            location: item.location?.name || "Multiple Locations",
-            workMode: item.location?.name?.toLowerCase().includes("remote") ? "remote" : "onsite",
-            salary: null,
-            experienceLevel: "Mid-level",
-            description: this.cleanHTML(item.content),
-            benefits: [],
-            requirements: [],
-            source: "greenhouse",
-            externalId: item.id.toString(),
-            postedDate: new Date(),
-            applyUrl: item.absolute_url,
-            isAutoSupported: false,
-          }));
-          aggregated.push(...mapped);
+          for (const item of data.jobs) {
+            const locationName = item.location?.name || "";
+            
+            // Only keep if located in India
+            if (!this.isLocatedInIndia(locationName)) {
+              continue;
+            }
+
+            const title = item.title;
+            const description = this.cleanHTML(item.content);
+
+            if (this.requiresForeignRelocation(description, title)) {
+              continue;
+            }
+
+            const parsed = this.parseStateAndCity(locationName);
+
+            aggregated.push({
+              id: `greenhouse_${board}_${item.id}`,
+              title,
+              companyName: board.charAt(0).toUpperCase() + board.slice(1),
+              companyLogo: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=120&h=120&q=80",
+              location: locationName,
+              state: parsed.state,
+              city: parsed.city,
+              workMode: locationName.toLowerCase().includes("remote") ? "remote" : "onsite",
+              salary: null,
+              experienceLevel: "Mid-level",
+              jobType: "full-time",
+              description,
+              benefits: [],
+              requirements: [],
+              source: "greenhouse",
+              externalId: item.id.toString(),
+              postedDate: new Date(),
+              applyUrl: item.absolute_url,
+              isAutoSupported: false,
+            });
+          }
         }
       } catch (err) {
-        logger.warn(`Greenhouse Provider: Board "${board}" query failed: ${err.message}`);
+        logger.warn(`Greenhouse India Provider: Board "${board}" query failed: ${err.message}`);
       }
     }
 
     if (filters.query) {
       const q = filters.query.toLowerCase();
-      return aggregated.filter((j) => j.title.toLowerCase().includes(q) || j.description.toLowerCase().includes(q));
+      return aggregated.filter((j) => (j.title || "").toLowerCase().includes(q) || (j.description || "").toLowerCase().includes(q));
     }
     return aggregated;
   }
 }
 
 // -----------------------------------------------------------------------------
-// Lever Postings Search Provider
+// Lever Postings Search Provider (India target filter)
 // -----------------------------------------------------------------------------
 class LeverJobProvider extends BaseJobProvider {
   constructor() {
@@ -289,48 +460,68 @@ class LeverJobProvider extends BaseJobProvider {
     for (const board of boards) {
       try {
         const url = `https://api.lever.co/v0/postings/${board}?mode=json`;
-        logger.info(`Lever Provider: Fetching public postings for "${board}"...`);
+        logger.info(`Lever India Provider: Fetching public postings for "${board}"...`);
         const response = await fetch(url, { headers: this.headers, signal: AbortSignal.timeout(4000) });
 
         if (!response.ok) continue;
 
         const data = await response.json();
         if (data && Array.isArray(data)) {
-          const mapped = data.map((item) => ({
-            id: `lever_${board}_${item.id}`,
-            title: item.text,
-            companyName: board.charAt(0).toUpperCase() + board.slice(1),
-            companyLogo: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80",
-            location: item.categories?.location || "Multiple Locations",
-            workMode: item.categories?.location?.toLowerCase().includes("remote") ? "remote" : "onsite",
-            salary: null,
-            experienceLevel: "Mid-level",
-            description: this.cleanHTML(item.descriptionPlain + " " + item.additionalPlain),
-            benefits: [],
-            requirements: [],
-            source: "lever",
-            externalId: item.id,
-            postedDate: new Date(item.createdAt),
-            applyUrl: item.hostedUrl,
-            isAutoSupported: false,
-          }));
-          aggregated.push(...mapped);
+          for (const item of data) {
+            const locationName = item.categories?.location || "";
+
+            // Only keep if located in India
+            if (!this.isLocatedInIndia(locationName)) {
+              continue;
+            }
+
+            const title = item.text;
+            const description = this.cleanHTML(item.descriptionPlain + " " + item.additionalPlain);
+
+            if (this.requiresForeignRelocation(description, title)) {
+              continue;
+            }
+
+            const parsed = this.parseStateAndCity(locationName);
+
+            aggregated.push({
+              id: `lever_${board}_${item.id}`,
+              title,
+              companyName: board.charAt(0).toUpperCase() + board.slice(1),
+              companyLogo: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=120&h=120&q=80",
+              location: locationName,
+              state: parsed.state,
+              city: parsed.city,
+              workMode: locationName.toLowerCase().includes("remote") ? "remote" : "onsite",
+              salary: null,
+              experienceLevel: "Mid-level",
+              jobType: "full-time",
+              description,
+              benefits: [],
+              requirements: [],
+              source: "lever",
+              externalId: item.id,
+              postedDate: new Date(item.createdAt),
+              applyUrl: item.hostedUrl,
+              isAutoSupported: false,
+            });
+          }
         }
       } catch (err) {
-        logger.warn(`Lever Provider: Board "${board}" query failed: ${err.message}`);
+        logger.warn(`Lever India Provider: Board "${board}" query failed: ${err.message}`);
       }
     }
 
     if (filters.query) {
       const q = filters.query.toLowerCase();
-      return aggregated.filter((j) => j.title.toLowerCase().includes(q) || j.description.toLowerCase().includes(q));
+      return aggregated.filter((j) => (j.title || "").toLowerCase().includes(q) || (j.description || "").toLowerCase().includes(q));
     }
     return aggregated;
   }
 }
 
 // -----------------------------------------------------------------------------
-// Combined Job Provider Service (Aggregator)
+// Combined Job Provider Service (Aggregator targeting India)
 // -----------------------------------------------------------------------------
 class JobProviderService {
   constructor() {
@@ -351,7 +542,8 @@ class JobProviderService {
    * Aggregate job listings from all enabled search providers in parallel
    */
   async searchJobs(filters = {}) {
-    logger.info(`Job Provider Service: Running parallel search across providers: ${this.providers.map(p => p.name).join(", ")}`);
+    logger.info(`Job Provider Service: Running parallel search for Indian Market across: ${this.providers.map(p => p.name).join(", ")}`);
+    const searchStartTime = Date.now();
 
     // Run parallel searches with individual try-catch wraps
     const searchPromises = this.providers.map(async (provider) => {
@@ -364,14 +556,17 @@ class JobProviderService {
     });
 
     const results = await Promise.all(searchPromises);
+    const searchDuration = Date.now() - searchStartTime;
 
     // Merge results and de-duplicate by matching title + company name
     const allJobs = [];
     const seen = new Set();
+    let totalFetched = 0;
 
     for (const providerJobs of results) {
+      totalFetched += providerJobs.length;
       for (const job of providerJobs) {
-        const uniqueKey = `${job.title.toLowerCase().trim()}_${job.companyName.toLowerCase().trim()}`;
+        const uniqueKey = `${(job.title || "").toLowerCase().trim()}_${(job.companyName || "").toLowerCase().trim()}`;
         if (!seen.has(uniqueKey)) {
           seen.add(uniqueKey);
           allJobs.push(job);
@@ -379,20 +574,55 @@ class JobProviderService {
       }
     }
 
-    // Apply client-side filters
+    const duplicatesRemoved = totalFetched - allJobs.length;
+
+    // Apply strict client-side India-focused filters
     let filteredJobs = allJobs;
 
+    // Filter by workMode
     if (filters.workMode && filters.workMode !== "any") {
       filteredJobs = filteredJobs.filter(
-        (job) => job.workMode.toLowerCase() === filters.workMode.toLowerCase()
+        (job) => (job.workMode || "").toLowerCase() === (filters.workMode || "").toLowerCase()
       );
     }
 
+    // Filter by location display name
     if (filters.location) {
-      const loc = filters.location.toLowerCase();
-      filteredJobs = filteredJobs.filter((job) => job.location.toLowerCase().includes(loc));
+      const loc = (filters.location || "").toLowerCase();
+      filteredJobs = filteredJobs.filter((job) => (job.location || "").toLowerCase().includes(loc));
     }
 
+    // Filter by State
+    if (filters.state) {
+      const s = (filters.state || "").toLowerCase().trim();
+      filteredJobs = filteredJobs.filter((job) => job.state && (job.state || "").toLowerCase().includes(s));
+    }
+
+    // Filter by City
+    if (filters.city) {
+      const c = (filters.city || "").toLowerCase().trim();
+      filteredJobs = filteredJobs.filter((job) => job.city && (job.city || "").toLowerCase().includes(c));
+    }
+
+    // Filter by Company
+    if (filters.company) {
+      const comp = (filters.company || "").toLowerCase().trim();
+      filteredJobs = filteredJobs.filter((job) => job.companyName && (job.companyName || "").toLowerCase().includes(comp));
+    }
+
+    // Filter by Job Type
+    if (filters.jobType && filters.jobType !== "any") {
+      const jt = (filters.jobType || "").toLowerCase().trim();
+      filteredJobs = filteredJobs.filter((job) => job.jobType && (job.jobType || "").toLowerCase().includes(jt));
+    }
+
+    // Filter by experience level
+    if (filters.experienceLevel && filters.experienceLevel !== "any") {
+      const exp = (filters.experienceLevel || "").toLowerCase().trim();
+      filteredJobs = filteredJobs.filter((job) => job.experienceLevel && (job.experienceLevel || "").toLowerCase().includes(exp));
+    }
+
+    // Filter by salary minimum
     if (filters.salary) {
       const minSalary = Number(filters.salary);
       filteredJobs = filteredJobs.filter((job) => {
@@ -405,7 +635,7 @@ class JobProviderService {
     // Sort by postedDate descending
     filteredJobs.sort((a, b) => b.postedDate - a.postedDate);
 
-    logger.info(`Job Provider Service: Search aggregation complete. Returning ${filteredJobs.length} real jobs.`);
+    logger.info(`Job Provider Service Metrics: Search Time: ${searchDuration}ms | Total Jobs Found: ${totalFetched} | Duplicates Removed: ${duplicatesRemoved} | Final Count: ${filteredJobs.length}`);
     return filteredJobs;
   }
 }

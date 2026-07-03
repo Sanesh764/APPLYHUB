@@ -138,7 +138,7 @@ const JobSearch = () => {
               id="location"
               name="location"
               label="Location"
-              placeholder="e.g. San Francisco, Remote"
+              placeholder="e.g. Pune india, Remote"
               value={filters.location}
               onChange={handleInputChange}
             />

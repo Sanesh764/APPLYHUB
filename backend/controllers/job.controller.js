@@ -1,7 +1,10 @@
 const Job = require("../models/Job");
 const Resume = require("../models/Resume");
+const AIAnalysis = require("../models/AIAnalysis");
 const jobProviderService = require("../services/jobProvider.service");
 const matchingService = require("../services/matching.service");
+const aiAnalysisService = require("../services/aiAnalysis.service");
+const cacheService = require("../services/cache.service");
 const { sendSuccess, sendError } = require("../utils/response");
 const logger = require("../config/logger");
 
@@ -12,9 +15,29 @@ class JobController {
   async searchJobs(req, res, next) {
     try {
       const userId = req.user.userId;
-      const { query, location, workMode, salary, experienceLevel, country } = req.query;
+      const {
+        query,
+        location,
+        workMode,
+        salary,
+        experienceLevel,
+        country,
+        state,
+        city,
+        company,
+        jobType,
+        sortBy
+      } = req.query;
 
-      // 1. Query job provider aggregator
+      // 1. Query memory cache representation
+      const cacheKey = `search_${userId || "public"}_${query || ""}_${location || ""}_${workMode || ""}_${salary || ""}_${experienceLevel || ""}_${state || ""}_${city || ""}_${company || ""}_${jobType || ""}_${sortBy || ""}`;
+      const cachedData = cacheService.get(cacheKey);
+      if (cachedData) {
+        logger.info(`Job Controller: Returning cached search results for key ${cacheKey}`);
+        return sendSuccess(res, "Jobs matched and retrieved successfully (cache hit).", { jobs: cachedData });
+      }
+
+      // 2. Query job provider aggregator
       const rawJobs = await jobProviderService.searchJobs({
         query,
         location,
@@ -22,6 +45,10 @@ class JobController {
         salary,
         experienceLevel,
         country,
+        state,
+        city,
+        company,
+        jobType,
       });
 
       // 2. Concurrently upsert results to sync with local MongoDB and obtain ObjectIds
@@ -46,6 +73,7 @@ class JobController {
 
       // 3. Fetch user's active resume
       const activeResume = await Resume.findOne({ userId, isActive: true });
+      const resumeVersion = activeResume ? activeResume.version : 1;
 
       if (!activeResume) {
         // If user hasn't uploaded a resume yet, return jobs with matchPercentage = null
@@ -56,11 +84,26 @@ class JobController {
         return sendSuccess(res, "Jobs retrieved. Upload resume to calculate match scores.", { jobs: results });
       }
 
-      // 3. Concurrently calculate hybrid match scores for all search results
+      // 4. Concurrently calculate hybrid match scores for all search results
       logger.info(`Job Controller: Calculating match metrics for ${jobs.length} jobs...`);
       const matchedJobs = await Promise.all(
         jobs.map(async (job) => {
           try {
+            // Check if full AI Analysis is already cached in MongoDB
+            const cached = await AIAnalysis.findOne({
+              userId,
+              resumeVersion,
+              jobId: job.id || job._id,
+            });
+
+            if (cached) {
+              return {
+                ...job,
+                matchPercentage: cached.matchScore,
+                aiAnalysis: cached,
+              };
+            }
+
             const matchDetails = await matchingService.calculateMatch(activeResume.parsedData, job);
             return {
               ...job,
@@ -84,12 +127,77 @@ class JobController {
         })
       );
 
-      // Sort results by match percentage descending
-      matchedJobs.sort((a, b) => b.matchPercentage - a.matchPercentage);
+      // Sort results by AI Match Score or Posted Date
+      const sortType = sortBy || "match";
+      if (sortType === "date" || sortType === "postedDate") {
+        matchedJobs.sort((a, b) => new Date(b.postedDate) - new Date(a.postedDate));
+      } else {
+        matchedJobs.sort((a, b) => b.matchPercentage - a.matchPercentage);
+      }
+
+      // Cache search results for 10 minutes (600 seconds)
+      cacheService.set(cacheKey, matchedJobs, 600);
 
       return sendSuccess(res, "Jobs matched and retrieved successfully.", { jobs: matchedJobs });
     } catch (error) {
       next(error);
+    }
+  }
+
+  /**
+   * Diagnostic provider health check (Requirement 11)
+   */
+  async getProvidersHealth(req, res, next) {
+    try {
+      const appId = process.env.ADZUNA_APP_ID;
+      const appKey = process.env.ADZUNA_APP_KEY;
+      
+      if (!appId || !appKey) {
+        return res.status(500).json({
+          adzuna: "missing_credentials",
+          country: "India",
+          jobsFound: 0,
+          status: "unhealthy",
+        });
+      }
+
+      const url = `https://api.adzuna.com/v1/api/jobs/in/search/1?app_id=${appId}&app_key=${appKey}&results_per_page=1`;
+      
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "application/json",
+        },
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!response.ok) {
+        return res.status(response.status).json({
+          adzuna: `failed_with_status_${response.status}`,
+          country: "India",
+          jobsFound: 0,
+          status: "unhealthy",
+        });
+      }
+
+      const data = await response.json();
+      const count = data.count || 0;
+
+      return res.status(200).json({
+        adzuna: "connected",
+        country: "India",
+        jobsFound: count,
+        status: "healthy",
+      });
+    } catch (error) {
+      logger.error("Job Controller: Providers health check failed", { error: error.message });
+      return res.status(500).json({
+        adzuna: "error",
+        country: "India",
+        jobsFound: 0,
+        status: "unhealthy",
+        details: error.message,
+      });
     }
   }
 
@@ -106,16 +214,16 @@ class JobController {
         return sendError(res, "Job posting not found.", 404);
       }
 
-      // Calculate match
+      // Calculate or retrieve cached AI Analysis features
       const activeResume = await Resume.findOne({ userId, isActive: true });
-      let matchDetails = null;
+      let aiAnalysis = null;
       if (activeResume) {
-        matchDetails = await matchingService.calculateMatch(activeResume.parsedData, job);
+        aiAnalysis = await aiAnalysisService.getOrCreateAnalysis(userId, activeResume, job);
       }
 
       return sendSuccess(res, "Job details retrieved successfully.", {
         job,
-        matchDetails,
+        aiAnalysis,
       });
     } catch (error) {
       next(error);

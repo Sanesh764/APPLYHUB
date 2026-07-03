@@ -16,6 +16,7 @@ const jobRoutes = require("./routes/job.routes");
 const applicationRoutes = require("./routes/application.routes");
 const notificationRoutes = require("./routes/notification.routes");
 const aiRoutes = require("./routes/ai.routes");
+const systemRoutes = require("./routes/system.routes");
 
 const app = express();
 
@@ -71,6 +72,7 @@ app.use("/api/v1/jobs", jobRoutes);
 app.use("/api/v1/applications", applicationRoutes);
 app.use("/api/v1/notifications", notificationRoutes);
 app.use("/api/v1/ai", aiRoutes);
+app.use("/api/v1/system", systemRoutes);
 
 // Temporary test route for SMTP validation
 app.post("/api/v1/test/email", async (req, res, next) => {

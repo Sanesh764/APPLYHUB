@@ -22,10 +22,10 @@ class CronService {
   init() {
     logger.info("Cron Service: Initializing background cron jobs...");
 
-    // Schedule automated job discovery daily at midnight (00:00)
+    // Schedule automated job discovery every 6 hours
     // For safety, we store the task reference so it can be managed
-    this.jobs.dailyAutomation = cron.schedule("0 0 * * *", async () => {
-      logger.info("Cron Service: Executing scheduled daily job automation...");
+    this.jobs.dailyAutomation = cron.schedule("0 */6 * * *", async () => {
+      logger.info("Cron Service: Executing scheduled 6-hour job automation...");
       try {
         await this.runDailyAutomation();
       } catch (err) {
@@ -33,7 +33,7 @@ class CronService {
       }
     });
 
-    logger.info("Cron Service: Daily job discovery cron scheduled successfully.");
+    logger.info("Cron Service: 6-hour job discovery cron scheduled successfully.");
   }
 
   /**
@@ -100,6 +100,8 @@ class CronService {
                 jobId: job.id,
                 status: "applied",
                 coverLetter,
+                resumeVersion: resume.version || 1,
+                matchScore: matchResult.matchPercentage,
                 appliedAt: new Date(),
                 history: [
                   {
@@ -124,6 +126,8 @@ class CronService {
                 jobId: job.id,
                 status: "saved",
                 coverLetter,
+                resumeVersion: resume.version || 1,
+                matchScore: matchResult.matchPercentage,
                 history: [
                   {
                     status: "saved",
