@@ -8,6 +8,7 @@ const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || "applyhub_refresh_secre
 const ACCESS_EXPIRY = process.env.JWT_ACCESS_EXPIRY || "15m";
 const REFRESH_EXPIRY = process.env.JWT_REFRESH_EXPIRY || "7d";
 
+
 class TokenService {
   /**
    * Hash a refresh token to securely store it in the database

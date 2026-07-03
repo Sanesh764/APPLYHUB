@@ -51,7 +51,7 @@ module.exports = {
     body("phone")
       .trim()
       .matches(/^\+?[1-9]\d{1,14}$/)
-      .withMessage("Provide a valid phone number (E.164 format, e.g., +1234567890)"),
+      .withMessage("Provide a valid phone number (E.164 format, e.g., +911234567890)"),
     checkValidation,
   ],
   validateLoginEmail: [
@@ -63,7 +63,7 @@ module.exports = {
     body("phone")
       .trim()
       .matches(/^\+?[1-9]\d{1,14}$/)
-      .withMessage("Provide a valid phone number (E.164 format, e.g., +1234567890)"),
+      .withMessage("Provide a valid phone number (E.164 format, e.g., +911234567890)"),
     checkValidation,
   ],
   validateVerifyOTP: [

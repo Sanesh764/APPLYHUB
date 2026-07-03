@@ -25,11 +25,11 @@ const ProfileSchema = new mongoose.Schema(
     },
     preferredCountries: {
       type: [String],
-      default: [],
+      default: [true,"india"],
     },
     preferredCities: {
       type: [String],
-      default: [],
+      default: [true,"pune"],
     },
     workMode: {
       type: String,
