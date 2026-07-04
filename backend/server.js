@@ -18,7 +18,7 @@ connectDB().then(() => {
 
 const port = process.env.PORT || 8080;
 const server = app.listen(port, () => {
-  logger.info(`ApplyHub Backend is listening on port ${port} in ${process.env.NODE_ENV || "development"} mode`);
+  logger.info(`ApplyHub Backend is listening on port ${port} in ${process.env.NODE_ENV} mode`);
 });
 
 // Handle Unhandled Rejections
