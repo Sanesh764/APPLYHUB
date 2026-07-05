@@ -4,7 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import Card from "../components/ui/Card";
 import Input from "../components/ui/Input";
 import Button from "../components/ui/Button";
-import { Mail, Phone, User as UserIcon, Lock, Sparkles, ArrowRight } from "lucide-react";
+import { Mail, Phone, Sparkles, ArrowRight, Rocket, Wand2, Clock } from "lucide-react";
 
 const Register = () => {
   const [method, setMethod] = useState("email"); // email | phone
@@ -77,26 +77,77 @@ const Register = () => {
   };
 
   return (
-    <div className="relative min-h-screen w-full flex items-center justify-center bg-slate-950 p-4 md:p-6 overflow-hidden">
-      {/* Decorative Blur Blobs */}
-      <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-72 md:w-96 h-72 md:h-96 rounded-full bg-blue-600/10 blur-[80px] md:blur-[120px] pointer-events-none"></div>
-      <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-72 md:w-96 h-72 md:h-96 rounded-full bg-indigo-600/10 blur-[80px] md:blur-[120px] pointer-events-none"></div>
+    <div className="relative min-h-screen w-full flex bg-slate-950 overflow-hidden">
+      {/* ===== Left Brand Panel (desktop only) ===== */}
+      <div className="relative hidden lg:flex lg:w-1/2 flex-col justify-between overflow-hidden p-12 xl:p-16">
+        {/* Layered animated backdrop */}
+        <div className="absolute inset-0 bg-gradient-to-br from-indigo-700 via-blue-700 to-slate-900 animate-gradient" />
+        <div className="absolute inset-0 bg-grid opacity-40" />
+        <div className="absolute -top-24 -right-24 w-96 h-96 rounded-full bg-indigo-400/20 blur-[120px] animate-float" />
+        <div className="absolute bottom-0 left-0 w-96 h-96 rounded-full bg-blue-400/20 blur-[120px] animate-float-slow" />
 
-      <div className="w-full max-w-lg z-10">
-        {/* Title Brand */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-white/5 border border-white/10 mb-4 animate-bounce">
-            <Sparkles className="h-6 w-6 text-blue-400" />
+        {/* Brand mark */}
+        <div className="relative z-10 flex items-center gap-3">
+          <div className="inline-flex items-center justify-center p-2.5 rounded-2xl bg-white/10 border border-white/20 backdrop-blur-md">
+            <Sparkles className="h-6 w-6 text-white" />
           </div>
-          <h1 className="text-3xl md:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-200 to-white tracking-tight">
-            Create an Account
-          </h1>
-          <p className="text-slate-400 text-sm mt-2">
-            Get started with ApplyHub AI-powered job application system.
-          </p>
+          <span className="text-xl font-extrabold tracking-tight text-white">ApplyHub</span>
         </div>
 
-        <Card className="shadow-slate-900/50">
+        {/* Headline + feature highlights */}
+        <div className="relative z-10 max-w-md">
+          <h2 className="text-4xl xl:text-5xl font-extrabold leading-tight tracking-tight text-white">
+            Start applying smarter today.
+          </h2>
+          <p className="mt-4 text-blue-100/80 text-base leading-relaxed">
+            Join thousands using AI to organize their search, stand out, and land interviews sooner.
+          </p>
+
+          <ul className="mt-10 flex flex-col gap-5">
+            {[
+              { icon: Rocket, title: "Set up in minutes", desc: "Create your account and start tracking instantly." },
+              { icon: Wand2, title: "AI-powered tools", desc: "Resume tailoring and cover letters, on demand." },
+              { icon: Clock, title: "Save hours weekly", desc: "Automate the busywork of every application." },
+            ].map((f) => (
+              <li key={f.title} className="flex items-start gap-4">
+                <div className="mt-0.5 inline-flex items-center justify-center p-2 rounded-xl bg-white/10 border border-white/15 backdrop-blur-md">
+                  <f.icon className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <p className="font-semibold text-white">{f.title}</p>
+                  <p className="text-sm text-blue-100/70">{f.desc}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <p className="relative z-10 text-xs text-blue-100/50 font-medium">
+          © {new Date().getFullYear()} ApplyHub. Your career, organized.
+        </p>
+      </div>
+
+      {/* ===== Right Form Panel ===== */}
+      <div className="relative flex-1 flex items-center justify-center p-4 md:p-6 lg:p-10 overflow-hidden">
+        {/* Decorative Blur Blobs (mobile / general ambience) */}
+        <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-72 md:w-96 h-72 md:h-96 rounded-full bg-blue-600/10 blur-[80px] md:blur-[120px] pointer-events-none lg:hidden"></div>
+        <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-72 md:w-96 h-72 md:h-96 rounded-full bg-indigo-600/10 blur-[80px] md:blur-[120px] pointer-events-none lg:hidden"></div>
+
+        <div className="w-full max-w-md z-10 animate-fade-up">
+          {/* Title Brand */}
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-white/5 border border-white/10 mb-4 lg:hidden">
+              <Sparkles className="h-6 w-6 text-blue-400" />
+            </div>
+            <h1 className="text-3xl md:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-200 to-white tracking-tight">
+              Create an Account
+            </h1>
+            <p className="text-slate-400 text-sm mt-2">
+              Get started with ApplyHub AI-powered job application system.
+            </p>
+          </div>
+
+          <Card className="shadow-slate-900/50">
           {/* Method Selector Tabs */}
           <div className="flex bg-slate-950/80 rounded-xl p-1 border border-slate-900 mb-6">
             <button
@@ -244,13 +295,14 @@ const Register = () => {
               </button>
             </div>
           </div>
-        </Card>
+          </Card>
 
-        <div className="text-center mt-6 text-xs md:text-sm text-slate-500 font-medium">
-          Already have an account?{" "}
-          <Link to="/login" className="text-blue-400 hover:text-blue-300 font-bold transition-all duration-300">
-            Sign In
-          </Link>
+          <div className="text-center mt-6 text-xs md:text-sm text-slate-500 font-medium">
+            Already have an account?{" "}
+            <Link to="/login" className="text-blue-400 hover:text-blue-300 font-bold transition-all duration-300">
+              Sign In
+            </Link>
+          </div>
         </div>
       </div>
     </div>
