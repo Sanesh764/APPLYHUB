@@ -1,11 +1,18 @@
 const tokenService = require("../services/token.service");
 const User = require("../models/User");
-const { sendError } = require("../utils/response");
+const asyncHandler = require("../utils/asyncHandler");
+const {
+  AuthenticationError,
+  AuthorizationError,
+  TokenExpiredError,
+  InvalidTokenError,
+} = require("../utils/errors");
 
 /**
- * Protect routes - Authentication Guard
+ * Protect routes - Authentication Guard.
+ * Throws typed errors that the central error handler renders consistently.
  */
-const protect = async (req, res, next) => {
+const protect = asyncHandler(async (req, res, next) => {
   let token;
 
   if (
@@ -16,22 +23,22 @@ const protect = async (req, res, next) => {
   }
 
   if (!token) {
-    return sendError(res, "Not authorized to access this route", 401);
+    throw new AuthenticationError("Authorization token is required.");
   }
 
   try {
-    // Verify Access Token
+    // Verify Access Token (throws jwt errors on failure)
     const decoded = tokenService.verifyAccessToken(token);
 
     // Get user from database
     const user = await User.findById(decoded.userId);
     if (!user) {
-      return sendError(res, "The user belonging to this token no longer exists", 401);
+      throw new AuthenticationError("The user belonging to this token no longer exists.");
     }
 
     // Check if account is locked
     if (user.isLocked()) {
-      return sendError(res, "This user account is locked", 403);
+      throw new AuthorizationError("This account is locked. Please try again later.");
     }
 
     // Attach user payload to request
@@ -41,30 +48,31 @@ const protect = async (req, res, next) => {
       email: user.email,
       phone: user.phone,
     };
-    
+
     // Attach mongoose document if needed
     req.userDocument = user;
 
     next();
   } catch (error) {
+    // Re-throw our own typed errors untouched.
+    if (error.isOperational) throw error;
+    // Map raw JWT verification failures to typed auth errors.
     if (error.name === "TokenExpiredError") {
-      return sendError(res, "Token expired. Please refresh your token.", 401);
+      throw new TokenExpiredError("Session expired. Please login again.");
     }
-    return sendError(res, "Not authorized to access this route", 401);
+    throw new InvalidTokenError("Invalid authentication token.");
   }
-};
+});
 
 /**
- * Role authorization guard
- * @param {...string} roles 
+ * Role authorization guard.
+ * @param {...string} roles
  */
 const requireRole = (...roles) => {
   return (req, res, next) => {
     if (!req.user || !roles.includes(req.user.role)) {
-      return sendError(
-        res,
-        `User role '${req.user ? req.user.role : "none"}' is not authorized to access this route`,
-        403
+      throw new AuthorizationError(
+        `Access denied. This action requires one of the following roles: ${roles.join(", ")}.`
       );
     }
     next();

@@ -1,18 +1,19 @@
 const mongoose = require("mongoose");
 const aiService = require("../services/ai.service");
 const emailService = require("../services/email.service");
+const { sendSuccess } = require("../utils/response");
+const asyncHandler = require("../utils/asyncHandler");
 const logger = require("../config/logger");
 
 class SystemController {
   /**
    * Diagnostic System Health probe (GET /api/v1/system/health)
    */
-  async getSystemHealth(req, res, next) {
+  getSystemHealth = asyncHandler(async (req, res) => {
     logger.info("System Health: Initiating parallel diagnostic check...");
     const startTime = Date.now();
 
-    try {
-      // 1. Concurrently run health status probes across all third-party and internal servers
+    // 1. Concurrently run health status probes across all third-party and internal servers
       const [
         nvidiaHealth,
         deepseekHealth,
@@ -113,16 +114,11 @@ class SystemController {
         latency: `${Date.now() - startTime}ms`,
       };
 
-      logger.info(`System Health: Scan completed in ${Date.now() - startTime}ms. Health Score: ${overallHealthScore}%`);
-      return res.status(200).json(responseMap);
-    } catch (err) {
-      logger.error("System Health: Diagnostic health check failed", err);
-      return res.status(500).json({
-        status: "unhealthy",
-        error: err.message,
-      });
-    }
-  }
+    logger.info(`System Health: Scan completed in ${Date.now() - startTime}ms. Health Score: ${overallHealthScore}%`);
+    // Standardized envelope; the detailed status map lives under `data`.
+    // Any unexpected failure propagates to the central handler (no raw leak).
+    return sendSuccess(res, "System health retrieved successfully.", responseMap);
+  });
 }
 
 module.exports = new SystemController();

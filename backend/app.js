@@ -7,6 +7,10 @@ const cookieParser = require("cookie-parser");
 const useragent = require("express-useragent");
 const { apiLimiter } = require("./middleware/rateLimiter");
 const errorHandler = require("./middleware/errorHandler");
+const notFoundHandler = require("./middleware/notFound");
+const asyncHandler = require("./utils/asyncHandler");
+const { successResponse } = require("./utils/response");
+const { ValidationError } = require("./utils/errors");
 
 // Route imports
 const authRoutes = require("./routes/auth.routes");
@@ -21,6 +25,7 @@ const systemRoutes = require("./routes/system.routes");
 const app = express();
 
 // 1. Security HTTP Headers
+
 app.use(helmet());
 
 // 2. CORS configuration (allowing credentials for secure HttpOnly cookie exchange)
@@ -75,18 +80,20 @@ app.use("/api/v1/ai", aiRoutes);
 app.use("/api/v1/system", systemRoutes);
 
 // Temporary test route for SMTP validation
-app.post("/api/v1/test/email", async (req, res, next) => {
-  const { email } = req.body;
-  if (!email) {
-    return res.status(400).json({ success: false, message: "Email is required in request body" });
-  }
+app.post(
+  "/api/v1/test/email",
+  asyncHandler(async (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+      throw new ValidationError("Email is required in request body.", "email");
+    }
 
-  const logger = require("./config/logger");
-  const emailService = require("./services/email.service");
+    const logger = require("./config/logger");
+    const emailService = require("./services/email.service");
 
-  try {
     logger.info(`SMTP Test: Attempting to send test email to ${email}...`);
-    
+
+    // Any send failure propagates to the central handler (message masked in prod).
     await emailService.sendMail({
       to: email,
       subject: "ApplyHub SMTP Test",
@@ -100,35 +107,22 @@ app.post("/api/v1/test/email", async (req, res, next) => {
           <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
           <p style="font-size: 11px; color: #999;">Regards,<br>ApplyHub Team</p>
         </div>
-      `
+      `,
     });
 
-    return res.status(200).json({
-      success: true,
-      message: `SMTP Test Successful. Email sent to ${email}`,
-    });
-  } catch (error) {
-    logger.error(`SMTP Test Failure: ${error.message}`, { error });
-    return res.status(500).json({
-      success: false,
-      message: `SMTP Test Failed: ${error.message}`,
-    });
-  }
-});
+    return successResponse(res, `SMTP Test Successful. Email sent to ${email}`);
+  })
+);
 
 // Health check endpoint
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "UP", timestamp: new Date() });
 });
 
-// 9. Handle undefined routes
-app.use((req, res, next) => {
-  const err = new Error(`Can't find ${req.originalUrl} on this server`);
-  err.statusCode = 404;
-  next(err);
-});
+// 9. Handle undefined routes (typed 404 → central handler)
+app.use(notFoundHandler);
 
-// 10. Global Error Handler
+// 10. Global Error Handler (must be registered last)
 app.use(errorHandler);
 
 module.exports = app;

@@ -5,6 +5,13 @@ const smsService = require("./sms.service");
 const emailService = require("./email.service");
 const tokenService = require("./token.service");
 const auditService = require("./audit.service");
+const {
+  ValidationError,
+  AuthenticationError,
+  ConflictError,
+  NotFoundError,
+  InvalidTokenError,
+} = require("../utils/errors");
 
 const LOCK_TIME_MS = 15 * 60 * 1000; // 15 minutes lockout
 const MAX_FAILED_ATTEMPTS = 5;
@@ -42,7 +49,7 @@ class AuthService {
         device,
         details: { reason: "Email already registered" },
       });
-      throw new Error("Email already registered");
+      throw new ConflictError("Email is already registered.", "email");
     }
 
     const user = await User.create({
@@ -102,12 +109,12 @@ class AuthService {
         device,
         details: { reason: "Invalid or expired token" },
       });
-      throw new Error("Invalid or expired verification token.");
+      throw new InvalidTokenError("Invalid or expired verification token.");
     }
 
     const user = await User.findOne({ email });
     if (!user) {
-      throw new Error("User not found.");
+      throw new NotFoundError("User not found.");
     }
 
     user.isEmailVerified = true;
@@ -143,7 +150,7 @@ class AuthService {
         device,
         details: { reason: "User not found" },
       });
-      throw new Error("Invalid email or password");
+      throw new AuthenticationError("User not found.", "email");
     }
 
     // Check account lockout
@@ -159,7 +166,7 @@ class AuthService {
         device,
         details: { reason: `Account locked. Remaining time: ${lockRemaining}m` },
       });
-      throw new Error(`This account is locked. Try again in ${lockRemaining} minutes.`);
+      throw new AuthenticationError(`This account is locked. Try again in ${lockRemaining} minutes.`);
     }
 
     const isMatch = await user.comparePassword(password);
@@ -194,7 +201,7 @@ class AuthService {
         details: { reason, failedAttempts: user.failedLoginAttempts },
       });
 
-      throw new Error("Invalid email or password");
+      throw new AuthenticationError("Incorrect password.", "password");
     }
 
     // Reset failed login attempts on success
@@ -202,6 +209,24 @@ class AuthService {
       user.failedLoginAttempts = 0;
       user.lockUntil = undefined;
       await user.save();
+    }
+
+    // Require a verified email before completing login.
+    if (!user.isEmailVerified) {
+      await auditService.logEvent({
+        userId: user._id,
+        identifier: email,
+        event: "login_failed",
+        status: "failure",
+        ipAddress,
+        userAgent,
+        device,
+        details: { reason: "Email not verified" },
+      });
+      throw new AuthenticationError(
+        "Please verify your email before logging in.",
+        "email"
+      );
     }
 
     // Check for Two Factor Authentication
@@ -231,13 +256,13 @@ class AuthService {
    */
   async sendPhoneOTP(phone, ipAddress, userAgent, device, type = "phone_verification") {
     // Basic formatting or validation
-    if (!phone) throw new Error("Phone number is required");
+    if (!phone) throw new ValidationError("Enter a valid phone number.", "phone");
 
     // Check cooldown to avoid spamming
     const existingOTP = await OTP.findOne({ identifier: phone, type });
     if (existingOTP && existingOTP.cooldownUntil > new Date()) {
       const waitTime = Math.ceil((existingOTP.cooldownUntil - Date.now()) / 1000);
-      throw new Error(`Please wait ${waitTime} seconds before requesting a new code.`);
+      throw new ValidationError(`Please wait ${waitTime} seconds before requesting a new code.`, "phone");
     }
 
     // Generate a random 6-digit code
@@ -272,16 +297,18 @@ class AuthService {
    * Register with Phone Number
    */
   async signupPhone({ name, phone, email }, ipAddress, userAgent, device) {
-    if (!phone || !name || !email) throw new Error("Name, email and phone number are required");
+    if (!phone || !name || !email) {
+      throw new ValidationError("Name, email and phone number are required.");
+    }
 
     // Check if user already exists
     const duplicatePhone = await User.findOne({ phone });
     if (duplicatePhone) {
-      throw new Error("Phone number is already associated with an account");
+      throw new ConflictError("Phone number is already registered.", "phone");
     }
     const duplicateEmail = await User.findOne({ email });
     if (duplicateEmail) {
-      throw new Error("Email is already associated with an account");
+      throw new ConflictError("Email is already registered.", "email");
     }
 
     // Create user marked as unverified for phone
@@ -306,12 +333,12 @@ class AuthService {
     const otpRecord = await OTP.findOne({ identifier: phone, type });
 
     if (!otpRecord) {
-      throw new Error("OTP expired or not found. Please request a new one.");
+      throw new ValidationError("OTP expired or not found. Please request a new one.", "code");
     }
 
     if (otpRecord.expiresAt < new Date()) {
       await OTP.deleteOne({ _id: otpRecord._id });
-      throw new Error("OTP expired. Please request a new one.");
+      throw new ValidationError("OTP expired. Please request a new one.", "code");
     }
 
     if (otpRecord.attempts >= 3) {
@@ -324,7 +351,7 @@ class AuthService {
         userAgent,
         device,
       });
-      throw new Error("Too many incorrect attempts. Please request a new code.");
+      throw new ValidationError("Too many incorrect attempts. Please request a new code.", "code");
     }
 
     if (otpRecord.codeHash !== codeHash) {
@@ -339,7 +366,7 @@ class AuthService {
         device,
         details: { attempts: otpRecord.attempts },
       });
-      throw new Error(`Incorrect code. You have ${3 - otpRecord.attempts} attempts left.`);
+      throw new ValidationError(`Incorrect code. You have ${3 - otpRecord.attempts} attempts left.`, "code");
     }
 
     // OTP is valid! Clean up
@@ -348,7 +375,7 @@ class AuthService {
     // Find User
     const user = await User.findOne({ phone });
     if (!user) {
-      throw new Error("User associated with this phone number not found.");
+      throw new NotFoundError("User associated with this phone number not found.");
     }
 
     // Update verified flag
@@ -443,11 +470,11 @@ class AuthService {
         device,
         details: { reason: "Invalid or expired reset token" },
       });
-      throw new Error("Invalid or expired reset link.");
+      throw new InvalidTokenError("Invalid or expired reset link.");
     }
 
     const user = await User.findOne({ email });
-    if (!user) throw new Error("User not found.");
+    if (!user) throw new NotFoundError("User not found.");
 
     user.password = newPassword;
     user.failedLoginAttempts = 0;
@@ -478,7 +505,7 @@ class AuthService {
    */
   async changePassword({ userId, currentPassword, newPassword }, ipAddress, userAgent, device) {
     const user = await User.findById(userId).select("+password");
-    if (!user) throw new Error("User not found");
+    if (!user) throw new NotFoundError("User not found.");
 
     const isMatch = await user.comparePassword(currentPassword);
     if (!isMatch) {
@@ -491,7 +518,7 @@ class AuthService {
         device,
         details: { reason: "Incorrect current password" },
       });
-      throw new Error("Current password is incorrect");
+      throw new AuthenticationError("Current password is incorrect.", "currentPassword");
     }
 
     user.password = newPassword;

@@ -1,6 +1,7 @@
 const rateLimit = require("express-rate-limit");
 const logger = require("../config/logger");
-const { sendError } = require("../utils/response");
+const { errorResponse } = require("../utils/response");
+const { RateLimitError } = require("../utils/errors");
 const { ipKeyGenerator } = require("express-rate-limit");
 // General global api rate limiter
 const apiLimiter = rateLimit({
@@ -10,7 +11,7 @@ const apiLimiter = rateLimit({
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   handler: (req, res) => {
     logger.warn(`API Rate Limit Exceeded: ${req.ip} tried to access ${req.originalUrl}`);
-    return sendError(res, "Too many requests from this IP, please try again after 15 minutes.", 429);
+    return errorResponse(res, new RateLimitError("Too many requests from this IP, please try again after 15 minutes."));
   },
 });
 
@@ -22,7 +23,7 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   handler: (req, res) => {
     logger.warn(`Auth Rate Limit Exceeded: ${req.ip} tried to access auth endpoint ${req.originalUrl}`);
-    return sendError(res, "Too many authentication attempts, please try again after 15 minutes.", 429);
+    return errorResponse(res, new RateLimitError("Too many authentication attempts, please try again after 15 minutes."));
   },
 });
 
@@ -38,7 +39,7 @@ const otpLimiter = rateLimit({
 },
   handler: (req, res) => {
     logger.warn(`OTP Limit Exceeded: ${req.ip} requested too many OTPs for ${req.body.phone || req.body.email}`);
-    return sendError(res, "Too many OTP requests. Please wait an hour or contact support.", 429);
+    return errorResponse(res, new RateLimitError("Too many OTP requests. Please wait an hour or contact support."));
   },
 });
 

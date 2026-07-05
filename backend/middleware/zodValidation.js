@@ -1,25 +1,30 @@
 const { z } = require("zod");
+const { ValidationError } = require("../utils/errors");
+
+/**
+ * Map a ZodError into our standardized ValidationError (400) carrying the
+ * first field/message at the top level and the full list under `details`.
+ */
+const toValidationError = (error) => {
+  const details = error.errors.map((err) => ({
+    field: err.path.join("."),
+    message: err.message,
+  }));
+  const first = details[0] || { field: null, message: "Validation failed." };
+  return new ValidationError(first.message, first.field, details);
+};
 
 /**
  * Express middleware to validate request body using a Zod schema
- * @param {z.ZodSchema} schema 
+ * @param {z.ZodSchema} schema
  */
 const validateBody = (schema) => (req, res, next) => {
   try {
-    // Parse req.body strictly
     req.body = schema.parse(req.body);
     next();
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const formattedErrors = error.errors.map((err) => ({
-        path: err.path.join("."),
-        msg: err.message,
-      }));
-
-      const valError = new Error("Validation Failed");
-      valError.statusCode = 400;
-      valError.errors = formattedErrors;
-      return next(valError);
+      return next(toValidationError(error));
     }
     next(error);
   }
@@ -27,7 +32,7 @@ const validateBody = (schema) => (req, res, next) => {
 
 /**
  * Express middleware to validate request query parameters using a Zod schema
- * @param {z.ZodSchema} schema 
+ * @param {z.ZodSchema} schema
  */
 const validateQuery = (schema) => (req, res, next) => {
   try {
@@ -35,15 +40,7 @@ const validateQuery = (schema) => (req, res, next) => {
     next();
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const formattedErrors = error.errors.map((err) => ({
-        path: err.path.join("."),
-        msg: err.message,
-      }));
-
-      const valError = new Error("Query Validation Failed");
-      valError.statusCode = 400;
-      valError.errors = formattedErrors;
-      return next(valError);
+      return next(toValidationError(error));
     }
     next(error);
   }

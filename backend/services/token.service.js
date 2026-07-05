@@ -2,6 +2,7 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const Session = require("../models/Session");
 const logger = require("../config/logger");
+const { TokenExpiredError, InvalidTokenError, AuthenticationError } = require("../utils/errors");
 
 const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || "applyhub_access_secret_key_123456";
 const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || "applyhub_refresh_secret_key_654321";
@@ -79,7 +80,7 @@ class TokenService {
           logger.warn(`Security warning: Potential Refresh Token reuse detected for user ${decoded.userId}. Revoking all sessions.`);
           await Session.deleteMany({ userId: decoded.userId });
         }
-        throw new Error("Invalid or revoked session. Please log in again.");
+        throw new AuthenticationError("Invalid or revoked session. Please log in again.");
       }
 
       // Generate a new token pair
@@ -106,7 +107,16 @@ class TokenService {
       };
     } catch (err) {
       logger.error("Token refresh failed:", err.message);
-      throw new Error(err.message || "Failed to refresh token");
+      // Preserve typed errors we raised deliberately.
+      if (err.isOperational) throw err;
+      // Map raw JWT failures to typed auth errors so the client gets 401, not 500.
+      if (err.name === "TokenExpiredError") {
+        throw new TokenExpiredError("Session expired. Please login again.");
+      }
+      if (err.name === "JsonWebTokenError" || err.name === "NotBeforeError") {
+        throw new InvalidTokenError("Invalid authentication token.");
+      }
+      throw new AuthenticationError("Failed to refresh token. Please log in again.");
     }
   }
 

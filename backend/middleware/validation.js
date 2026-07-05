@@ -1,15 +1,17 @@
 const { body, query, validationResult } = require("express-validator");
+const { ValidationError } = require("../utils/errors");
 
 const checkValidation = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    const error = new Error("Validation Failed");
-    error.statusCode = 400;
-    error.errors = errors.array().map((err) => ({
-      path: err.path || err.param,
-      msg: err.msg,
+    const details = errors.array().map((err) => ({
+      field: err.path || err.param,
+      message: err.msg,
     }));
-    return next(error);
+    // Surface the first field/message at the top level for direct display,
+    // with the full list under `details` for field-by-field rendering.
+    const first = details[0];
+    return next(new ValidationError(first.message, first.field, details));
   }
   next();
 };

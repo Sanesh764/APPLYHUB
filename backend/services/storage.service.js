@@ -1,6 +1,7 @@
 const fs = require("fs").promises;
 const path = require("path");
 const logger = require("../config/logger");
+const { FileUploadError } = require("../utils/errors");
 
 // ---------------------------------------------------------
 // Storage Adapter Interface (Implicit)
@@ -40,7 +41,7 @@ class LocalStorageAdapter {
       };
     } catch (error) {
       logger.error("Storage Error: Local upload failed", error);
-      throw new Error("Failed to save file locally.");
+      throw new FileUploadError("Upload failed. Could not save the file.");
     }
   }
 
@@ -83,7 +84,7 @@ class CloudinaryStorageAdapter {
         (error, result) => {
           if (error) {
             logger.error("Storage Error: Cloudinary upload failed", error);
-            return reject(new Error("Cloudinary upload failed: " + error.message));
+            return reject(new FileUploadError("Cloudinary upload failed. Please try again."));
           }
           logger.info(`Storage: Uploaded file to Cloudinary: ${result.secure_url}`);
           resolve({

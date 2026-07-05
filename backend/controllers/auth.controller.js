@@ -1,7 +1,9 @@
 const authService = require("../services/auth.service");
 const tokenService = require("../services/token.service");
 const auditService = require("../services/audit.service");
-const { sendSuccess, sendError } = require("../utils/response");
+const { sendSuccess } = require("../utils/response");
+const asyncHandler = require("../utils/asyncHandler");
+const { ValidationError } = require("../utils/errors");
 
 // Helper to get client IP
 const getClientIp = (req) => {
@@ -32,246 +34,210 @@ class AuthController {
   /**
    * Register User with Email
    */
-  async signupEmail(req, res, next) {
-    try {
-      const { name, email, password } = req.body;
-      const ip = getClientIp(req);
-      const ua = req.headers["user-agent"] || "Unknown";
-      const device = getClientDevice(req);
+  signupEmail = asyncHandler(async (req, res) => {
+    const { name, email, password } = req.body;
+    const ip = getClientIp(req);
+    const ua = req.headers["user-agent"] || "Unknown";
+    const device = getClientDevice(req);
 
-      const user = await authService.signupEmail({ name, email, password }, ip, ua, device);
+    const user = await authService.signupEmail({ name, email, password }, ip, ua, device);
 
-      return sendSuccess(
-        res,
-        "Registration successful. Please check your email to verify your account.",
-        { userId: user._id, email: user.email },
-        201
-      );
-    } catch (error) {
-      next(error);
-    }
-  }
+    return sendSuccess(
+      res,
+      "Registration successful. Please check your email to verify your account.",
+      { userId: user._id, email: user.email },
+      201
+    );
+  });
 
   /**
    * Verify Email
    */
-  async verifyEmail(req, res, next) {
-    try {
-      const { email, token } = req.query;
-      const ip = getClientIp(req);
-      const ua = req.headers["user-agent"] || "Unknown";
-      const device = getClientDevice(req);
+  verifyEmail = asyncHandler(async (req, res) => {
+    const { email, token } = req.query;
+    const ip = getClientIp(req);
+    const ua = req.headers["user-agent"] || "Unknown";
+    const device = getClientDevice(req);
 
-      await authService.verifyEmail(email, token, ip, ua, device);
+    await authService.verifyEmail(email, token, ip, ua, device);
 
-      return sendSuccess(res, "Email verified successfully. You can now log in.");
-    } catch (error) {
-      next(error);
-    }
-  }
+    return sendSuccess(res, "Email verified successfully. You can now log in.");
+  });
 
   /**
    * Login User with Email
    */
-  async loginEmail(req, res, next) {
-    try {
-      const { email, password } = req.body;
-      const ip = getClientIp(req);
-      const ua = req.headers["user-agent"] || "Unknown";
-      const device = getClientDevice(req);
+  loginEmail = asyncHandler(async (req, res) => {
+    const { email, password } = req.body;
+    const ip = getClientIp(req);
+    const ua = req.headers["user-agent"] || "Unknown";
+    const device = getClientDevice(req);
 
-      const result = await authService.loginEmail({
-        email,
-        password,
-        device,
-        ipAddress: ip,
-        userAgent: ua,
+    const result = await authService.loginEmail({
+      email,
+      password,
+      device,
+      ipAddress: ip,
+      userAgent: ua,
+    });
+
+    if (result.twoFactorRequired) {
+      return sendSuccess(res, "Two-Factor authentication is required", {
+        twoFactorRequired: true,
+        userId: result.userId,
+        email: result.email,
       });
-
-      if (result.twoFactorRequired) {
-        return sendSuccess(res, "Two-Factor authentication is required", {
-          twoFactorRequired: true,
-          userId: result.userId,
-          email: result.email,
-        });
-      }
-
-      const { user, accessToken, refreshToken } = result;
-
-      // Set Refresh Token in secure cookie
-      setRefreshTokenCookie(res, refreshToken);
-
-      return sendSuccess(res, "Login successful", {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          phone: user.phone,
-          role: user.role,
-          isEmailVerified: user.isEmailVerified,
-          isPhoneVerified: user.isPhoneVerified,
-        },
-        accessToken,
-      });
-    } catch (error) {
-      next(error);
     }
-  }
+
+    const { user, accessToken, refreshToken } = result;
+
+    // Set Refresh Token in secure cookie
+    setRefreshTokenCookie(res, refreshToken);
+
+    return sendSuccess(res, "Login successful", {
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        isEmailVerified: user.isEmailVerified,
+        isPhoneVerified: user.isPhoneVerified,
+      },
+      accessToken,
+    });
+  });
 
   /**
    * Register User with Phone (Sends OTP)
    */
-  async signupPhone(req, res, next) {
-    try {
-      const { name, email, phone } = req.body;
-      const ip = getClientIp(req);
-      const ua = req.headers["user-agent"] || "Unknown";
-      const device = getClientDevice(req);
+  signupPhone = asyncHandler(async (req, res) => {
+    const { name, email, phone } = req.body;
+    const ip = getClientIp(req);
+    const ua = req.headers["user-agent"] || "Unknown";
+    const device = getClientDevice(req);
 
-      const user = await authService.signupPhone({ name, email, phone }, ip, ua, device);
+    const user = await authService.signupPhone({ name, email, phone }, ip, ua, device);
 
-      return sendSuccess(
-        res,
-        "Registration successful. An OTP has been sent to your phone for verification.",
-        { userId: user._id, phone: user.phone },
-        201
-      );
-    } catch (error) {
-      next(error);
-    }
-  }
+    return sendSuccess(
+      res,
+      "Registration successful. An OTP has been sent to your phone for verification.",
+      { userId: user._id, phone: user.phone },
+      201
+    );
+  });
 
   /**
    * Send/Resend OTP (For existing user login)
    */
-  async sendPhoneOTP(req, res, next) {
-    try {
-      const { phone } = req.body;
-      const ip = getClientIp(req);
-      const ua = req.headers["user-agent"] || "Unknown";
-      const device = getClientDevice(req);
+  sendPhoneOTP = asyncHandler(async (req, res) => {
+    const { phone } = req.body;
+    const ip = getClientIp(req);
+    const ua = req.headers["user-agent"] || "Unknown";
+    const device = getClientDevice(req);
 
-      await authService.sendPhoneOTP(phone, ip, ua, device, "phone_verification");
+    await authService.sendPhoneOTP(phone, ip, ua, device, "phone_verification");
 
-      return sendSuccess(res, "OTP sent successfully.");
-    } catch (error) {
-      next(error);
-    }
-  }
+    return sendSuccess(res, "OTP sent successfully.");
+  });
 
   /**
    * Verify Phone OTP (Complete Login/Signup)
    */
-  async verifyPhoneOTP(req, res, next) {
-    try {
-      const { phone, code } = req.body;
-      const ip = getClientIp(req);
-      const ua = req.headers["user-agent"] || "Unknown";
-      const device = getClientDevice(req);
+  verifyPhoneOTP = asyncHandler(async (req, res) => {
+    const { phone, code } = req.body;
+    const ip = getClientIp(req);
+    const ua = req.headers["user-agent"] || "Unknown";
+    const device = getClientDevice(req);
 
-      const { user, accessToken, refreshToken } = await authService.verifyPhoneOTP({
-        phone,
-        code,
-        device,
-        ipAddress: ip,
-        userAgent: ua,
-      });
+    const { user, accessToken, refreshToken } = await authService.verifyPhoneOTP({
+      phone,
+      code,
+      device,
+      ipAddress: ip,
+      userAgent: ua,
+    });
 
-      // Set cookie
-      setRefreshTokenCookie(res, refreshToken);
+    // Set cookie
+    setRefreshTokenCookie(res, refreshToken);
 
-      return sendSuccess(res, "Verification and login successful", {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          phone: user.phone,
-          role: user.role,
-          isEmailVerified: user.isEmailVerified,
-          isPhoneVerified: user.isPhoneVerified,
-        },
-        accessToken,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+    return sendSuccess(res, "Verification and login successful", {
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        isEmailVerified: user.isEmailVerified,
+        isPhoneVerified: user.isPhoneVerified,
+      },
+      accessToken,
+    });
+  });
 
   /**
    * Forgot Password - Request Reset Link
    */
-  async forgotPassword(req, res, next) {
-    try {
-      const { email } = req.body;
-      const ip = getClientIp(req);
-      const ua = req.headers["user-agent"] || "Unknown";
-      const device = getClientDevice(req);
+  forgotPassword = asyncHandler(async (req, res) => {
+    const { email } = req.body;
+    const ip = getClientIp(req);
+    const ua = req.headers["user-agent"] || "Unknown";
+    const device = getClientDevice(req);
 
-      await authService.forgotPassword(email, ip, ua, device);
+    await authService.forgotPassword(email, ip, ua, device);
 
-      // Return general success response for security
-      return sendSuccess(
-        res,
-        "If the email exists, a password reset link has been sent to it."
-      );
-    } catch (error) {
-      next(error);
-    }
-  }
+    // Return general success response for security
+    return sendSuccess(
+      res,
+      "If the email exists, a password reset link has been sent to it."
+    );
+  });
 
   /**
    * Reset Password
    */
-  async resetPassword(req, res, next) {
-    try {
-      const { email, token, newPassword } = req.body;
-      const ip = getClientIp(req);
-      const ua = req.headers["user-agent"] || "Unknown";
-      const device = getClientDevice(req);
+  resetPassword = asyncHandler(async (req, res) => {
+    const { email, token, newPassword } = req.body;
+    const ip = getClientIp(req);
+    const ua = req.headers["user-agent"] || "Unknown";
+    const device = getClientDevice(req);
 
-      await authService.resetPassword({ email, token, newPassword }, ip, ua, device);
+    await authService.resetPassword({ email, token, newPassword }, ip, ua, device);
 
-      return sendSuccess(res, "Password reset successful. You can now log in with your new password.");
-    } catch (error) {
-      next(error);
-    }
-  }
+    return sendSuccess(res, "Password reset successful. You can now log in with your new password.");
+  });
 
   /**
    * Change Password (Authenticated)
    */
-  async changePassword(req, res, next) {
-    try {
-      const { currentPassword, newPassword } = req.body;
-      const userId = req.user.userId;
-      const ip = getClientIp(req);
-      const ua = req.headers["user-agent"] || "Unknown";
-      const device = getClientDevice(req);
+  changePassword = asyncHandler(async (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+    const userId = req.user.userId;
+    const ip = getClientIp(req);
+    const ua = req.headers["user-agent"] || "Unknown";
+    const device = getClientDevice(req);
 
-      await authService.changePassword({ userId, currentPassword, newPassword }, ip, ua, device);
+    await authService.changePassword({ userId, currentPassword, newPassword }, ip, ua, device);
 
-      // Clear cookies upon password change since all other sessions are revoked
-      res.clearCookie("refreshToken");
+    // Clear cookies upon password change since all other sessions are revoked
+    res.clearCookie("refreshToken");
 
-      return sendSuccess(res, "Password changed successfully. Please log in again.");
-    } catch (error) {
-      next(error);
-    }
-  }
+    return sendSuccess(res, "Password changed successfully. Please log in again.");
+  });
 
   /**
    * Refresh Token
    */
-  async refreshToken(req, res, next) {
+  refreshToken = asyncHandler(async (req, res) => {
+    const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
+    if (!refreshToken) {
+      throw new ValidationError("Refresh token is missing.", "refreshToken");
+    }
+
+    const ip = getClientIp(req);
+    const device = getClientDevice(req);
+
     try {
-      const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
-      if (!refreshToken) {
-        return sendError(res, "Refresh token is missing", 400);
-      }
-
-      const ip = getClientIp(req);
-      const device = getClientDevice(req);
-
       const { accessToken, refreshToken: newRefreshToken } = await tokenService.refreshSession(
         refreshToken,
         device,
@@ -283,182 +249,154 @@ class AuthController {
 
       return sendSuccess(res, "Token refreshed successfully", { accessToken });
     } catch (error) {
-      // Clear cookie if refresh token fails
+      // Clear the (now invalid) cookie before surfacing the error.
       res.clearCookie("refreshToken");
-      next(error);
+      throw error;
     }
-  }
+  });
 
   /**
    * Logout from Current Device
    */
-  async logout(req, res, next) {
-    try {
-      const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
-      const ip = getClientIp(req);
-      const ua = req.headers["user-agent"] || "Unknown";
-      const device = getClientDevice(req);
+  logout = asyncHandler(async (req, res) => {
+    const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
+    const ip = getClientIp(req);
+    const ua = req.headers["user-agent"] || "Unknown";
+    const device = getClientDevice(req);
 
-      if (refreshToken) {
-        await tokenService.revokeSession(refreshToken);
-      }
-
-      if (req.user) {
-        await auditService.logEvent({
-          userId: req.user.userId,
-          event: "logout",
-          status: "success",
-          ipAddress: ip,
-          userAgent: ua,
-          device,
-        });
-      }
-
-      res.clearCookie("refreshToken");
-      return sendSuccess(res, "Logged out successfully from current device.");
-    } catch (error) {
-      next(error);
+    if (refreshToken) {
+      await tokenService.revokeSession(refreshToken);
     }
-  }
+
+    if (req.user) {
+      await auditService.logEvent({
+        userId: req.user.userId,
+        event: "logout",
+        status: "success",
+        ipAddress: ip,
+        userAgent: ua,
+        device,
+      });
+    }
+
+    res.clearCookie("refreshToken");
+    return sendSuccess(res, "Logged out successfully from current device.");
+  });
 
   /**
    * Logout from All Devices
    */
-  async logoutAll(req, res, next) {
-    try {
-      const userId = req.user.userId;
-      const ip = getClientIp(req);
-      const ua = req.headers["user-agent"] || "Unknown";
-      const device = getClientDevice(req);
+  logoutAll = asyncHandler(async (req, res) => {
+    const userId = req.user.userId;
+    const ip = getClientIp(req);
+    const ua = req.headers["user-agent"] || "Unknown";
+    const device = getClientDevice(req);
 
-      await tokenService.revokeAllUserSessions(userId);
+    await tokenService.revokeAllUserSessions(userId);
 
-      await auditService.logEvent({
-        userId,
-        event: "logout_all_devices",
-        status: "success",
-        ipAddress: ip,
-        userAgent: ua,
-        device,
-      });
+    await auditService.logEvent({
+      userId,
+      event: "logout_all_devices",
+      status: "success",
+      ipAddress: ip,
+      userAgent: ua,
+      device,
+    });
 
-      res.clearCookie("refreshToken");
-      return sendSuccess(res, "Logged out successfully from all devices.");
-    } catch (error) {
-      next(error);
-    }
-  }
+    res.clearCookie("refreshToken");
+    return sendSuccess(res, "Logged out successfully from all devices.");
+  });
 
   /**
    * Get Active Sessions / Devices
    */
-  async getSessions(req, res, next) {
-    try {
-      const userId = req.user.userId;
-      const activeSessions = await tokenService.getActiveSessions(userId);
+  getSessions = asyncHandler(async (req, res) => {
+    const userId = req.user.userId;
+    const activeSessions = await tokenService.getActiveSessions(userId);
 
-      // Map sessions and indicate the current one
-      const currentTokenHash = req.cookies.refreshToken
-        ? tokenService.hashToken(req.cookies.refreshToken)
-        : null;
+    // Map sessions and indicate the current one
+    const currentTokenHash = req.cookies.refreshToken
+      ? tokenService.hashToken(req.cookies.refreshToken)
+      : null;
 
-      const sessions = activeSessions.map((session) => ({
-        id: session._id,
-        device: session.device,
-        ipAddress: session.ipAddress,
-        lastActive: session.lastActive,
-        isCurrent: session.refreshTokenHash === currentTokenHash,
-      }));
+    const sessions = activeSessions.map((session) => ({
+      id: session._id,
+      device: session.device,
+      ipAddress: session.ipAddress,
+      lastActive: session.lastActive,
+      isCurrent: session.refreshTokenHash === currentTokenHash,
+    }));
 
-      return sendSuccess(res, "Active sessions retrieved successfully", { sessions });
-    } catch (error) {
-      next(error);
-    }
-  }
+    return sendSuccess(res, "Active sessions retrieved successfully", { sessions });
+  });
 
   /**
    * Revoke specific session (Device)
    */
-  async revokeSession(req, res, next) {
-    try {
-      const { sessionId } = req.params;
-      const userId = req.user.userId;
-      const ip = getClientIp(req);
-      const ua = req.headers["user-agent"] || "Unknown";
-      const device = getClientDevice(req);
+  revokeSession = asyncHandler(async (req, res) => {
+    const { sessionId } = req.params;
+    const userId = req.user.userId;
+    const ip = getClientIp(req);
+    const ua = req.headers["user-agent"] || "Unknown";
+    const device = getClientDevice(req);
 
-      await tokenService.revokeSessionById(sessionId, userId);
+    await tokenService.revokeSessionById(sessionId, userId);
 
-      await auditService.logEvent({
-        userId,
-        event: "revoke_device_session",
-        status: "success",
-        ipAddress: ip,
-        userAgent: ua,
-        device,
-        details: { revokedSessionId: sessionId },
-      });
+    await auditService.logEvent({
+      userId,
+      event: "revoke_device_session",
+      status: "success",
+      ipAddress: ip,
+      userAgent: ua,
+      device,
+      details: { revokedSessionId: sessionId },
+    });
 
-      return sendSuccess(res, "Device session revoked successfully.");
-    } catch (error) {
-      next(error);
-    }
-  }
+    return sendSuccess(res, "Device session revoked successfully.");
+  });
 
   /**
    * Get Current User Profile
    */
-  async getMe(req, res, next) {
-    try {
-      return sendSuccess(res, "User profile retrieved successfully", {
-        user: {
-          id: req.userDocument._id,
-          name: req.userDocument.name,
-          email: req.userDocument.email,
-          phone: req.userDocument.phone,
-          role: req.userDocument.role,
-          isEmailVerified: req.userDocument.isEmailVerified,
-          isPhoneVerified: req.userDocument.isPhoneVerified,
-          createdAt: req.userDocument.createdAt,
-        },
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
+  getMe = asyncHandler(async (req, res) => {
+    return sendSuccess(res, "User profile retrieved successfully", {
+      user: {
+        id: req.userDocument._id,
+        name: req.userDocument.name,
+        email: req.userDocument.email,
+        phone: req.userDocument.phone,
+        role: req.userDocument.role,
+        isEmailVerified: req.userDocument.isEmailVerified,
+        isPhoneVerified: req.userDocument.isPhoneVerified,
+        createdAt: req.userDocument.createdAt,
+      },
+    });
+  });
 
   /**
    * Admin: Get all registered users
    */
-  async getUsers(req, res, next) {
-    try {
-      const User = require("../models/User");
-      const users = await User.find().sort({ createdAt: -1 });
-      return sendSuccess(res, "Users retrieved successfully", { users });
-    } catch (error) {
-      next(error);
-    }
-  }
+  getUsers = asyncHandler(async (req, res) => {
+    const User = require("../models/User");
+    const users = await User.find().sort({ createdAt: -1 });
+    return sendSuccess(res, "Users retrieved successfully", { users });
+  });
 
   /**
    * Admin: Get system audit logs
    */
-  async getAuditLogs(req, res, next) {
-    try {
-      const { page, limit, event, status } = req.query;
-      const filters = {};
-      if (event) filters.event = event;
-      if (status) filters.status = status;
-      
-      const result = await auditService.getAuditLogs(filters, {
-        page: parseInt(page) || 1,
-        limit: parseInt(limit) || 20,
-      });
-      return sendSuccess(res, "Audit logs retrieved successfully", result);
-    } catch (error) {
-      next(error);
-    }
-  }
+  getAuditLogs = asyncHandler(async (req, res) => {
+    const { page, limit, event, status } = req.query;
+    const filters = {};
+    if (event) filters.event = event;
+    if (status) filters.status = status;
+
+    const result = await auditService.getAuditLogs(filters, {
+      page: parseInt(page) || 1,
+      limit: parseInt(limit) || 20,
+    });
+    return sendSuccess(res, "Audit logs retrieved successfully", result);
+  });
 }
 
 module.exports = new AuthController();

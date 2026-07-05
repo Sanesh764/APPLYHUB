@@ -23,4 +23,18 @@ const connectDB = async () => {
   }
 };
 
+// Post-connection listeners: surface runtime DB failures in the logs rather
+// than letting them fail silently after the initial connection succeeds.
+mongoose.connection.on("error", (error) => {
+  logger.error(`MongoDB connection error: ${error.message}`, { error });
+});
+
+mongoose.connection.on("disconnected", () => {
+  logger.warn("MongoDB disconnected. Attempting to reconnect...");
+});
+
+mongoose.connection.on("reconnected", () => {
+  logger.info("MongoDB reconnected successfully.");
+});
+
 module.exports = connectDB;
