@@ -1,7 +1,11 @@
 import axios from "axios";
 
-// Base API configuration
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8080";
+// Base API configuration.
+// VITE_API_URL should be the backend HOST only (e.g. "http://localhost:8080"
+// or "https://your-backend.com"); the "/api/v1" version prefix is appended
+// here so every call site can use clean relative paths like "/auth/login/email".
+const API_ROOT = (import.meta.env.VITE_API_URL || "http://localhost:8080").replace(/\/+$/, "");
+const API_URL = `${API_ROOT}/api/v1`;
 
 const api = axios.create({
   baseURL: API_URL,

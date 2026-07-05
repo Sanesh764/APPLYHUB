@@ -211,24 +211,6 @@ class AuthService {
       await user.save();
     }
 
-    // Require a verified email before completing login.
-    if (!user.isEmailVerified) {
-      await auditService.logEvent({
-        userId: user._id,
-        identifier: email,
-        event: "login_failed",
-        status: "failure",
-        ipAddress,
-        userAgent,
-        device,
-        details: { reason: "Email not verified" },
-      });
-      throw new AuthenticationError(
-        "Please verify your email before logging in.",
-        "email"
-      );
-    }
-
     // Check for Two Factor Authentication
     if (user.twoFactorEnabled) {
       // Return 2FA requirement without logging in yet
