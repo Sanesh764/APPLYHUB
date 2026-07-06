@@ -123,6 +123,10 @@ class AIService {
     return this.execute("matchJob", parsedData, jobDescription);
   }
 
+  async summarizeJob(job) {
+    return this.execute("summarizeJob", job);
+  }
+
   async generateCoverLetter(parsedData, companyName, jobTitle, jobDescription) {
     return this.execute("generateCoverLetter", parsedData, companyName, jobTitle, jobDescription);
   }

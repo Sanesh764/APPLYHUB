@@ -72,6 +72,12 @@ const jobMatchingSchema = z.object({
   requiredExperienceNeeded: z.string().default(""),
 });
 
+const jobEnrichmentSchema = z.object({
+  summary: z.string().default(""),
+  preferredSkills: z.array(z.string()).default([]),
+  responsibilities: z.array(z.string()).default([]),
+});
+
 // -----------------------------------------------------------------------------
 // Base Provider Class
 // -----------------------------------------------------------------------------
@@ -81,6 +87,7 @@ class BaseProvider {
     this.parsedDataSchema = parsedDataSchema;
     this.atsAnalysisSchema = atsAnalysisSchema;
     this.jobMatchingSchema = jobMatchingSchema;
+    this.jobEnrichmentSchema = jobEnrichmentSchema;
   }
 
   isPlaceholderKey(key) {
@@ -207,6 +214,53 @@ John Application`;
       "How do you design a database schema to prevent circular references in Mongoose?",
       "Can you walk us through the security measures you implemented in the authentication layer of ApplyHub?",
     ].join("\n\n");
+  }
+
+  getMockJobEnrichment(job = {}) {
+    const title = job.title || "this role";
+    const company = job.company || "the company";
+    return {
+      summary: `${title} at ${company} is a hands-on engineering role focused on building and shipping production features. The team values strong fundamentals, ownership, and collaboration. A solid match for candidates with relevant full-stack experience looking to grow.`,
+      preferredSkills: ["Docker", "CI/CD", "Cloud platforms"],
+      responsibilities: Array.isArray(job.responsibilities) ? job.responsibilities : [],
+    };
+  }
+
+  /**
+   * Generate a concise AI enrichment for a single job (3–5 line summary,
+   * preferred/nice-to-have skills, cleaned responsibilities). Shared across all
+   * concrete providers — each implements `isConfigured()` + `queryLLM()`.
+   * Falls back to a deterministic mock when the provider is unconfigured.
+   * @param {Object} job  A deterministically-enriched job object.
+   * @returns {Promise<{summary:string, preferredSkills:string[], responsibilities:string[]}>}
+   */
+  async summarizeJob(job = {}) {
+    if (typeof this.isConfigured === "function" && !this.isConfigured()) {
+      return this.getMockJobEnrichment(job);
+    }
+
+    const systemInstruction = `You are a job-listing analyst. Read the job and output STRICT JSON matching this schema:
+    {
+      "summary": "A concise 3-5 line plain-text summary of the role, team, and who it suits. No markdown.",
+      "preferredSkills": ["nice-to-have skills explicitly or strongly implied by the posting"],
+      "responsibilities": ["4-6 short bullet phrases of the core responsibilities"]
+    }
+    Only include information supported by the posting. Do not invent specifics.`;
+
+    const prompt = `Title: ${job.title}
+Company: ${job.company}
+Location: ${job.location}
+Employment Type: ${job.employmentType}
+Known Skills: ${(job.skills || []).join(", ")}
+Description: ${(job.description || "").slice(0, 4000)}`;
+
+    try {
+      const raw = await this.queryLLM(prompt, systemInstruction);
+      return this.jobEnrichmentSchema.parse(raw);
+    } catch (err) {
+      logger.warn(`${this.name} summarizeJob failed, returning mock fallback: ${err.message}`);
+      return this.getMockJobEnrichment(job);
+    }
   }
 }
 

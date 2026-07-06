@@ -18,8 +18,8 @@ const NOT_SPECIFIED = "Not Specified";
 // word-boundary scan over title + description + provider tags.
 const SKILL_DICTIONARY = [
   // Languages
-  "javascript", "typescript", "python", "java", "c++", "c#", "ruby", "go", "golang",
-  "php", "rust", "scala", "kotlin", "swift", "objective-c", "dart", "elixir", "r",
+  "javascript", "typescript", "python", "java", "c++", "c#", "ruby", "golang",
+  "php", "rust", "scala", "kotlin", "swift", "objective-c", "dart", "elixir",
   // Frontend
   "react", "angular", "vue", "svelte", "next.js", "nuxt", "redux", "zustand",
   "html", "css", "sass", "tailwindcss", "tailwind", "bootstrap", "material-ui",

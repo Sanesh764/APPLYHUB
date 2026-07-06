@@ -1,225 +1,110 @@
 const cron = require("node-cron");
-const Profile = require("../models/Profile");
-const Resume = require("../models/Resume");
 const Job = require("../models/Job");
-const Application = require("../models/Application");
-const User = require("../models/User");
-const jobProviderService = require("./jobProvider.service");
-const matchingService = require("./matching.service");
-const aiService = require("./ai.service");
-const notificationService = require("./notification.service");
-const emailService = require("./email.service");
+const jobAggregator = require("./jobAggregator.service");
+const cacheService = require("./cache.service");
 const logger = require("../config/logger");
+
+/**
+ * -----------------------------------------------------------------------------
+ * Cron Service — Live Job Cache Refresh
+ * -----------------------------------------------------------------------------
+ * NOTE: The former "Auto-Apply" automation (runDailyAutomation / daily digest)
+ * has been REMOVED. ApplyHub never auto-submits applications. This service now
+ * exists purely to keep the Mongo job cache warm and prune stale listings.
+ *
+ * Every ~45 minutes it re-runs a set of popular default queries through the
+ * aggregator (which upserts fresh results into the Job cache) and deletes jobs
+ * that have not been seen in a fetch for a while.
+ */
+
+// Popular default searches used to keep the cache warm for first-load / browse.
+const WARM_QUERIES = [
+  "software engineer",
+  "frontend developer",
+  "backend developer",
+  "full stack developer",
+  "data scientist",
+  "devops engineer",
+  "product manager",
+];
+
+// Jobs not re-seen by a fetch within this window are pruned.
+const STALE_AFTER_DAYS = 21;
 
 class CronService {
   constructor() {
     this.jobs = {};
   }
 
-  /**
-   * Initialize and start scheduled cron tasks
-   */
+  /** Initialize and start scheduled tasks. */
   init() {
-    logger.info("Cron Service: Initializing background cron jobs...");
+    logger.info("Cron Service: Initializing background cache-refresh jobs...");
 
-    // Schedule automated job discovery every 6 hours
-    // For safety, we store the task reference so it can be managed
-    this.jobs.dailyAutomation = cron.schedule("0 */6 * * *", async () => {
-      logger.info("Cron Service: Executing scheduled 6-hour job automation...");
+    // Refresh the job cache every 45 minutes (spec: 30–60 min).
+    this.jobs.cacheRefresh = cron.schedule("*/45 * * * *", async () => {
+      logger.info("Cron Service: Executing scheduled job cache refresh...");
       try {
-        await this.runDailyAutomation();
+        await this.refreshJobCache();
       } catch (err) {
-        logger.error("Cron Service: Scheduled automation task failed", err);
+        logger.error("Cron Service: Cache refresh task failed", err);
       }
     });
 
-    logger.info("Cron Service: 6-hour job discovery cron scheduled successfully.");
+    logger.info("Cron Service: 45-minute job cache-refresh scheduled successfully.");
   }
 
   /**
-   * Run automated discovery and submission pipeline
-   * Can also be triggered manually via endpoints for verification.
+   * Re-run the warm queries through the aggregator to refresh cached listings,
+   * then prune stale jobs. Safe to trigger manually for verification.
    */
-  async runDailyAutomation() {
-    logger.info("Cron Service: Starting job discovery pipeline...");
+  async refreshJobCache() {
+    logger.info("Cron Service: Refreshing job cache from providers...");
+    let upserted = 0;
 
-    // Find all users who completed onboarding and enabled automation
-    const activeProfiles = await Profile.find({ isCompleted: true, isAutomationEnabled: true });
-    logger.info(`Cron Service: Found ${activeProfiles.length} active users with automation enabled.`);
-
-    const summaryReport = [];
-
-    for (const profile of activeProfiles) {
+    for (const query of WARM_QUERIES) {
       try {
-        // Find active resume version
-        const resume = await Resume.findOne({ userId: profile.userId, isActive: true });
-        if (!resume) {
-          logger.warn(`Cron Service: User ${profile.userId} has automation enabled but no active resume.`);
-          continue;
-        }
-
-        const user = await User.findById(profile.userId);
-        if (!user) continue;
-
-        // Perform job search based on user profile preferences
-        const jobs = await jobProviderService.searchJobs({
-          query: profile.preferredRole,
-          workMode: profile.workMode,
-          salary: profile.expectedSalary,
-          location: profile.preferredCities[0] || "",
-        });
-
-        if (jobs.length === 0) continue;
-
-        const autoApplied = [];
-        const preparedManual = [];
-
-        for (const job of jobs) {
-          // Check if application exists
-          const existingApp = await Application.findOne({ userId: profile.userId, jobId: job.id });
-          if (existingApp) continue;
-
-          // Run hybrid match
-          const matchResult = await matchingService.calculateMatch(resume.parsedData, job);
-
-          // Threshold for automation: 80%
-          if (matchResult.matchPercentage >= 80) {
-            // Generate customized cover letter
-            const coverLetter = await aiService.generateCoverLetter(
-              resume.parsedData,
-              job.companyName,
-              job.title,
-              job.description
+        const enriched = await jobAggregator.search(query, {});
+        for (const job of enriched) {
+          try {
+            await Job.findOneAndUpdate(
+              { source: job.source, externalId: job.externalId },
+              {
+                $set: {
+                  ...this.stripAiFields(job),
+                  lastFetchedAt: new Date(),
+                },
+              },
+              { upsert: true, new: true, setDefaultsOnInsert: true, runValidators: true }
             );
-
-            // Determine if auto-apply is officially supported (local seed jobs act as easy apply)
-            if (job.isAutoSupported) {
-              // Create auto-submitted application
-              await Application.create({
-                userId: profile.userId,
-                jobId: job.id,
-                status: "applied",
-                coverLetter,
-                resumeVersion: resume.version || 1,
-                matchScore: matchResult.matchPercentage,
-                appliedAt: new Date(),
-                history: [
-                  {
-                    status: "applied",
-                    notes: "Application automatically prepared and submitted by ApplyHub AI.",
-                  },
-                ],
-              });
-
-              await notificationService.createNotification({
-                userId: profile.userId,
-                title: `Auto-Applied: ${job.companyName}`,
-                message: `We matched your resume (${matchResult.matchPercentage}%) and automatically applied for the ${job.title} position.`,
-                type: "application",
-              });
-
-              autoApplied.push({ title: job.title, company: job.companyName, score: matchResult.matchPercentage });
-            } else {
-              // Create saved/prepared application
-              await Application.create({
-                userId: profile.userId,
-                jobId: job.id,
-                status: "saved",
-                coverLetter,
-                resumeVersion: resume.version || 1,
-                matchScore: matchResult.matchPercentage,
-                history: [
-                  {
-                    status: "saved",
-                    notes: "Application package (Resume + Cover Letter) prepared by ApplyHub. Action required to complete submission.",
-                  },
-                ],
-              });
-
-              await notificationService.createNotification({
-                userId: profile.userId,
-                title: `Application Prepared: ${job.companyName}`,
-                message: `Excellent match (${matchResult.matchPercentage}%)! We pre-generated your cover letter for ${job.title}. Click to review and submit manually.`,
-                type: "application",
-              });
-
-              preparedManual.push({ title: job.title, company: job.companyName, score: matchResult.matchPercentage });
-            }
+            upserted += 1;
+          } catch (err) {
+            logger.warn(`Cron Service: upsert failed for "${job.title}": ${err.message}`);
           }
         }
-
-        // Send digest email if matches were found for the user
-        if (autoApplied.length > 0 || preparedManual.length > 0) {
-          await this.sendDailyDigestEmail(user, autoApplied, preparedManual);
-          summaryReport.push({
-            userId: user._id,
-            email: user.email,
-            applied: autoApplied.length,
-            prepared: preparedManual.length,
-          });
-        }
       } catch (err) {
-        logger.error(`Cron Service: Failed to process pipeline for profile: ${profile._id}`, err);
+        logger.error(`Cron Service: warm query "${query}" failed: ${err.message}`);
       }
     }
 
-    logger.info(`Cron Service: Finished job discovery pipeline. Processed summaries for ${summaryReport.length} users.`);
-    return summaryReport;
+    // Invalidate in-memory search cache so the next request sees fresh data.
+    cacheService.clear();
+
+    const pruned = await this.pruneStaleJobs();
+    logger.info(`Cron Service: Cache refresh complete. Upserted ~${upserted} jobs, pruned ${pruned} stale.`);
+    return { upserted, pruned };
   }
 
-  /**
-   * Send daily email digest containing matches
-   */
-  async sendDailyDigestEmail(user, autoApplied, preparedManual) {
-    const subject = "ApplyHub: Your Daily AI Job Search Digest";
-    
-    let appliedRows = autoApplied.map(
-      (job) => `<li><strong>${job.title}</strong> at <em>${job.company}</em> (${job.score}% Match) - <span style="color:#10b981;font-weight:bold;">SUBMITTED</span></li>`
-    ).join("");
+  /** Delete jobs whose last successful fetch is older than the stale window. */
+  async pruneStaleJobs() {
+    const cutoff = new Date(Date.now() - STALE_AFTER_DAYS * 24 * 60 * 60 * 1000);
+    const result = await Job.deleteMany({ lastFetchedAt: { $lt: cutoff } });
+    return result.deletedCount || 0;
+  }
 
-    let preparedRows = preparedManual.map(
-      (job) => `<li><strong>${job.title}</strong> at <em>${job.company}</em> (${job.score}% Match) - <span style="color:#3b82f6;font-weight:bold;">PREPARED (Action Required)</span></li>`
-    ).join("");
-
-    const emailHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
-        <h2 style="color: #2563eb; text-align: center;">Daily AI Job Digest</h2>
-        <p>Hi <strong>${user.name}</strong>,</p>
-        <p>Our background AI matching engine has completed its daily scan of new opportunities matching your profile settings.</p>
-        
-        ${
-          autoApplied.length > 0
-            ? `
-          <h3 style="color:#10b981; border-bottom:1px solid #eee; padding-bottom:5px;">Automatically Submitted Applications</h3>
-          <ul>${appliedRows}</ul>
-        `
-            : ""
-        }
-
-        ${
-          preparedManual.length > 0
-            ? `
-          <h3 style="color:#3b82f6; border-bottom:1px solid #eee; padding-bottom:5px;">Prepared Application Packages</h3>
-          <p style="font-size:12px;color:#666;">These opportunities do not support direct integration. We have pre-compiled your custom cover letter and matching stats. Log in to submit them manually:</p>
-          <ul>${preparedRows}</ul>
-        `
-            : ""
-        }
-
-        <div style="text-align: center; margin: 30px 0;">
-          <a href="${process.env.FRONTEND_URL || "http://localhost:5173"}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold; display: inline-block;">Go to Dashboard</a>
-        </div>
-        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-        <p style="font-size: 11px; color: #999; text-align: center;">You received this email because you opted into automated job discovery. You can change your preferences in profile settings at any time.</p>
-      </div>
-    `;
-
-    await emailService.sendMail({
-      to: user.email,
-      subject,
-      text: `Hi ${user.name},\n\nWe found new matching jobs for you today. Log in to your ApplyHub dashboard to view details.`,
-      html: emailHtml,
-    });
+  /** AI-owned fields are preserved across refresh; never overwrite them here. */
+  stripAiFields(job) {
+    const { summary, preferredSkills, ...rest } = job;
+    return rest;
   }
 }
 

@@ -61,6 +61,8 @@ const ProfileSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // @deprecated Auto-Apply was removed; ApplyHub never auto-submits
+    // applications. Field retained for backward compatibility only.
     isAutomationEnabled: {
       type: Boolean,
       default: false,
