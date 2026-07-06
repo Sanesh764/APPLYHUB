@@ -9,24 +9,16 @@ const SmartRecruitersProvider = require("./smartrecruiters.provider");
 const AshbyProvider = require("./ashby.provider");
 const RecruiteeProvider = require("./recruitee.provider");
 
-/**
- * -----------------------------------------------------------------------------
- * Provider Registry
- * -----------------------------------------------------------------------------
- * Single source of truth for which job sources are wired into the aggregator.
- *
- * To add a new source:
- *   1. Create `<name>.provider.js` extending BaseJobProvider.
- *   2. Add one line to REGISTERED below.
- * The aggregator, cron cache-refresh and health checks pick it up automatically.
- *
- * Providers whose `isEnabled()` returns false (missing keys/config) are skipped
- * at startup so an unconfigured source never adds latency or noise.
- *
- * NOTE: Teamtailor and Wellfound are intentionally omitted — neither exposes a
- * usable keyless public search API. They can be dropped in here the moment
- * credentials/endpoints are available, with zero changes elsewhere.
- */
+// New Providers
+const LinkedInProvider = require("./linkedin.provider");
+const IndeedProvider = require("./indeed.provider");
+const NaukriProvider = require("./naukri.provider");
+const FounditProvider = require("./foundit.provider");
+const CutshortProvider = require("./cutshort.provider");
+const InstahyreProvider = require("./instahyre.provider");
+const WellfoundProvider = require("./wellfound.provider");
+const YCJobsProvider = require("./ycjobs.provider");
+
 const REGISTERED = [
   new AdzunaProvider(),
   new RemotiveProvider(),
@@ -36,6 +28,14 @@ const REGISTERED = [
   new SmartRecruitersProvider(),
   new AshbyProvider(),
   new RecruiteeProvider(),
+  new LinkedInProvider(),
+  new IndeedProvider(),
+  new NaukriProvider(),
+  new FounditProvider(),
+  new CutshortProvider(),
+  new InstahyreProvider(),
+  new WellfoundProvider(),
+  new YCJobsProvider(),
 ];
 
 const enabledProviders = REGISTERED.filter((p) => {

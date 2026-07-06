@@ -67,15 +67,44 @@ const jobMatchingSchema = z.object({
   explanation: z.string().default(""),
   advantages: z.array(z.string()).default([]),
   disadvantages: z.array(z.string()).default([]),
+  matchingSkills: z.array(z.string()).default([]),
   missingSkills: z.array(z.string()).default([]),
+  resumeSuggestions: z.array(z.string()).default([]),
+  recommendation: z.string().default(""),
+  interviewReadiness: z.string().default("Not Specified"),
+  difficultyLevel: z.string().default("Not Specified"),
+  interviewTopics: z.array(z.string()).default([]),
+  prepRoadmap: z.array(z.string()).default([]),
+  learningResources: z.array(
+    z.object({
+      title: z.string().default(""),
+      url: z.string().default(""),
+    })
+  ).default([]),
   requiredCertifications: z.array(z.string()).default([]),
   requiredExperienceNeeded: z.string().default(""),
 });
 
 const jobEnrichmentSchema = z.object({
-  summary: z.string().default(""),
+  summary: z.string().default("Not Specified"),
   preferredSkills: z.array(z.string()).default([]),
   responsibilities: z.array(z.string()).default([]),
+  companyWebsite: z.string().default("Not Specified"),
+  companySize: z.string().default("Not Specified"),
+  companyIndustry: z.string().default("Not Specified"),
+  companyDescription: z.string().default("Not Specified"),
+  benefits: z.array(z.string()).default([]),
+  visaSponsorship: z.string().default("Not Specified"),
+  indiaEligible: z.string().default("Not Specified"),
+  isInternship: z.boolean().default(false),
+  internshipDetails: z.object({
+    stipend: z.string().default("Not Disclosed"),
+    duration: z.string().default("Not Disclosed"),
+    internshipType: z.string().default("Not Disclosed"),
+    ppoAvailability: z.string().default("Not Disclosed"),
+    startDate: z.string().default("Not Disclosed"),
+    eligibility: z.string().default("Not Disclosed")
+  }).default({}),
 });
 
 // -----------------------------------------------------------------------------
@@ -189,7 +218,25 @@ class BaseProvider {
         "No explicit experience with Next.js is mentioned.",
         "Lacks microservices scale records.",
       ],
+      matchingSkills: ["React", "Node.js", "Docker", "JavaScript", "HTML", "CSS"],
       missingSkills: ["Next.js", "GraphQL"],
+      resumeSuggestions: [
+        "Add a summary statement detailing your background in SaaS application development.",
+        "Incorporate keywords like Next.js to increase search indexing.",
+      ],
+      recommendation: "Excellent match. Highlight your relevant full-stack projects.",
+      interviewReadiness: "Ready",
+      difficultyLevel: "Medium",
+      interviewTopics: ["React performance optimization", "REST API design in Node.js", "Docker deployment"],
+      prepRoadmap: [
+        "Review React hooks and server components.",
+        "Practice Express middleware implementation.",
+        "Optimize Dockerfile multi-stage builds."
+      ],
+      learningResources: [
+        { title: "React Official Docs", url: "https://react.dev" },
+        { title: "Node.js Design Patterns", url: "https://nodejs.org" }
+      ],
       requiredCertifications: ["None required."],
       requiredExperienceNeeded: "The job requests 3 years of experience. The candidate lists ~2 years.",
     };
@@ -219,33 +266,190 @@ John Application`;
   getMockJobEnrichment(job = {}) {
     const title = job.title || "this role";
     const company = job.company || "the company";
+    const isIntern = /intern/i.test(title) || /internship/i.test(job.description || "");
     return {
       summary: `${title} at ${company} is a hands-on engineering role focused on building and shipping production features. The team values strong fundamentals, ownership, and collaboration. A solid match for candidates with relevant full-stack experience looking to grow.`,
       preferredSkills: ["Docker", "CI/CD", "Cloud platforms"],
-      responsibilities: Array.isArray(job.responsibilities) ? job.responsibilities : [],
+      responsibilities: Array.isArray(job.responsibilities) && job.responsibilities.length ? job.responsibilities : [
+        "Develop and maintain robust web applications.",
+        "Collaborate with product and design teams.",
+        "Write clean, testable, and documented code."
+      ],
+      companyWebsite: "Not Specified",
+      companySize: "Not Specified",
+      companyIndustry: "Not Specified",
+      companyDescription: "Not Specified",
+      benefits: ["Health insurance", "Flexible working hours"],
+      visaSponsorship: "Not Specified",
+      indiaEligible: "Yes",
+      isInternship: isIntern,
+      internshipDetails: {
+        stipend: isIntern ? "₹20,000 - ₹35,000 / month" : "Not Disclosed",
+        duration: isIntern ? "6 months" : "Not Disclosed",
+        internshipType: isIntern ? "Paid" : "Not Disclosed",
+        ppoAvailability: isIntern ? "Yes" : "Not Disclosed",
+        startDate: isIntern ? "Immediate" : "Not Disclosed",
+        eligibility: isIntern ? "B.Tech/MCA/Equivalent" : "Not Disclosed"
+      }
     };
   }
 
-  /**
-   * Generate a concise AI enrichment for a single job (3–5 line summary,
-   * preferred/nice-to-have skills, cleaned responsibilities). Shared across all
-   * concrete providers — each implements `isConfigured()` + `queryLLM()`.
-   * Falls back to a deterministic mock when the provider is unconfigured.
-   * @param {Object} job  A deterministically-enriched job object.
-   * @returns {Promise<{summary:string, preferredSkills:string[], responsibilities:string[]}>}
-   */
+  // ---------------------------------------------------------------------------
+  // Core AI Operations
+  // ---------------------------------------------------------------------------
+  async parseResume(rawText) {
+    if (typeof this.isConfigured === "function" && !this.isConfigured()) {
+      return this.getMockParsedData();
+    }
+
+    const systemInstruction = `You are a recruiting parser. Extract candidate details and format strictly to this JSON schema:
+    {
+      "name": "Full Name",
+      "email": "Email Address",
+      "phone": "Phone Number",
+      "skills": ["Broad skills like Python"],
+      "technologies": ["Technologies like Git, Docker"],
+      "frameworks": ["Frameworks like React, Node.js"],
+      "languages": ["Languages spoken"],
+      "certifications": ["Certifications earned"],
+      "projects": [{"title": "Project Title", "description": "Project details", "technologies": ["techs"]}],
+      "experience": [{"company": "Company Name", "role": "Job Role", "startDate": "YYYY-MM", "endDate": "YYYY-MM or Present", "description": "duties"}],
+      "education": [{"institution": "Institution Name", "degree": "Degree", "fieldOfStudy": "Major", "graduationYear": "YYYY"}],
+      "achievements": ["Accomplishments"],
+      "softSkills": ["Soft skills"]
+    }`;
+
+    try {
+      const rawJson = await this.queryLLM(`Resume text to parse: \n\n${rawText}`, systemInstruction);
+      return this.parsedDataSchema.parse(rawJson);
+    } catch (err) {
+      logger.error(`${this.name} parseResume failed, returning mock fallback: ${err.message}`);
+      return this.getMockParsedData();
+    }
+  }
+
+  async analyzeATS(parsedData, targetRole) {
+    if (typeof this.isConfigured === "function" && !this.isConfigured()) {
+      return this.getMockATSAnalysis();
+    }
+
+    const systemInstruction = `You are an ATS advisor. Analyze resume details against a target role. Format output strictly to this JSON schema:
+    {
+      "atsScore": 85,
+      "missingSkills": ["expected skills missing"],
+      "strongSkills": ["highlighted skills present"],
+      "weakSkills": ["skills showing weak experience"],
+      "quality": "Text summarizing impact",
+      "keywordAnalysis": ["keywords to include"],
+      "grammarIssues": ["grammar issues found or 'None'"],
+      "formattingSuggestions": ["formatting tips"],
+      "missingSections": ["missing structural blocks"],
+      "industryScore": 80,
+      "careerLevel": "Level description",
+      "improvementSuggestions": ["actionable steps"]
+    }`;
+
+    try {
+      const rawJson = await this.queryLLM(`Target Role: ${targetRole}\nProfile Data: ${JSON.stringify(parsedData)}`, systemInstruction);
+      return this.atsAnalysisSchema.parse(rawJson);
+    } catch (err) {
+      logger.error(`${this.name} analyzeATS failed, returning mock fallback: ${err.message}`);
+      return this.getMockATSAnalysis();
+    }
+  }
+
+  async matchJob(parsedData, jobDescription) {
+    if (typeof this.isConfigured === "function" && !this.isConfigured()) {
+      return this.getMockJobMatching();
+    }
+
+    const systemInstruction = `You are a career matcher. Compare resume profile against job description. Output STRICT JSON matching this schema:
+    {
+      "matchPercentage": 75,
+      "explanation": "concise reasons for this score, explaining why this job matches or doesn't match the candidate",
+      "advantages": ["candidate strengths relative to this job"],
+      "disadvantages": ["candidate gaps or weaknesses relative to this job"],
+      "matchingSkills": ["skills present in the candidate resume that are also requested in the job description"],
+      "missingSkills": ["skills missing from the candidate resume that are requested in the job description"],
+      "resumeSuggestions": ["concrete, actionable recommendations on how the candidate can improve their resume for this job"],
+      "recommendation": "main overall recommendation",
+      "interviewReadiness": "interview readiness estimate: 'Ready', 'Requires Prep', or 'Not Ready'",
+      "difficultyLevel": "job difficulty level: 'Entry', 'Medium', or 'Hard'",
+      "interviewTopics": ["3-5 expected technical or behavioral interview topics based on the job requirements"],
+      "prepRoadmap": ["3-5 step preparation roadmap tailored to this role"],
+      "learningResources": [{"title": "Course/Doc Title", "url": "learning URL"}],
+      "requiredCertifications": ["missing certifications requested"],
+      "requiredExperienceNeeded": "explanation of experience gaps"
+    }
+    For empty lists, return [] instead of omitting them. Only output valid JSON.`;
+
+    try {
+      const rawJson = await this.queryLLM(`Resume Profile: ${JSON.stringify(parsedData)}\nJob Description: ${jobDescription}`, systemInstruction);
+      return this.jobMatchingSchema.parse(rawJson);
+    } catch (err) {
+      logger.error(`${this.name} matchJob failed, returning mock fallback: ${err.message}`);
+      return this.getMockJobMatching();
+    }
+  }
+
+  async generateCoverLetter(parsedData, companyName, jobTitle, jobDescription) {
+    if (typeof this.isConfigured === "function" && !this.isConfigured()) {
+      return this.getMockCoverLetter(companyName, jobTitle);
+    }
+
+    const systemPrompt = `You are an expert career consultant. Write a professional cover letter based on the candidate's resume data and the target job. Do not use placeholder fields like [Date]; output a cohesive ready-to-use letter.`;
+
+    try {
+      return await this.queryLLMText(`Candidate Profile: ${JSON.stringify(parsedData)}\nCompany: ${companyName}\nRole: ${jobTitle}\nJob Description: ${jobDescription}`, systemPrompt);
+    } catch (err) {
+      logger.error(`${this.name} generateCoverLetter failed, returning mock fallback: ${err.message}`);
+      return this.getMockCoverLetter(companyName, jobTitle);
+    }
+  }
+
+  async generateInterviewQuestions(parsedData, jobTitle, jobDescription) {
+    if (typeof this.isConfigured === "function" && !this.isConfigured()) {
+      return this.getMockInterviewQuestions();
+    }
+
+    const systemPrompt = `You are an expert technical interviewer. Generate 3 highly relevant interview questions based on the candidate's resume details and the target job requirements.`;
+
+    try {
+      return await this.queryLLMText(`Candidate Profile: ${JSON.stringify(parsedData)}\nRole: ${jobTitle}\nJob Description: ${jobDescription}`, systemPrompt);
+    } catch (err) {
+      logger.error(`${this.name} generateInterviewQuestions failed, returning mock fallback: ${err.message}`);
+      return this.getMockInterviewQuestions();
+    }
+  }
+
   async summarizeJob(job = {}) {
     if (typeof this.isConfigured === "function" && !this.isConfigured()) {
       return this.getMockJobEnrichment(job);
     }
 
-    const systemInstruction = `You are a job-listing analyst. Read the job and output STRICT JSON matching this schema:
+    const systemInstruction = `You are a job-listing analyst. Read the job description and output STRICT JSON matching this schema:
     {
       "summary": "A concise 3-5 line plain-text summary of the role, team, and who it suits. No markdown.",
       "preferredSkills": ["nice-to-have skills explicitly or strongly implied by the posting"],
-      "responsibilities": ["4-6 short bullet phrases of the core responsibilities"]
+      "responsibilities": ["4-6 short bullet phrases of the core responsibilities"],
+      "companyWebsite": "website URL if mentioned, else 'Not Specified'",
+      "companySize": "company size range if mentioned (e.g. 50-100 employees), else 'Not Specified'",
+      "companyIndustry": "industry of the company, else 'Not Specified'",
+      "companyDescription": "brief 1-2 sentence description of the company, else 'Not Specified'",
+      "benefits": ["list of benefits mentioned like health insurance, equity, etc."],
+      "visaSponsorship": "visa sponsorship availability status (e.g., 'Available', 'Not Available', or 'Not Specified')",
+      "indiaEligible": "whether candidates from India are eligible (e.g., 'Yes', 'No', or 'Not Specified')",
+      "isInternship": true/false,
+      "internshipDetails": {
+        "stipend": "stipend value if internship, else 'Not Disclosed'",
+        "duration": "duration of internship (e.g., '6 months'), else 'Not Disclosed'",
+        "internshipType": "type of internship (e.g., 'Paid', 'Unpaid', or 'Not Disclosed')",
+        "ppoAvailability": "whether PPO is available (e.g., 'Yes', 'No', or 'Not Disclosed')",
+        "startDate": "start date, else 'Not Disclosed'",
+        "eligibility": "eligibility criteria, else 'Not Disclosed'"
+      }
     }
-    Only include information supported by the posting. Do not invent specifics.`;
+    For any value that is unavailable, return 'Not Specified' or 'Not Disclosed' as specified in the schema. Do not return empty values. Only output valid JSON.`;
 
     const prompt = `Title: ${job.title}
 Company: ${job.company}
@@ -255,8 +459,8 @@ Known Skills: ${(job.skills || []).join(", ")}
 Description: ${(job.description || "").slice(0, 4000)}`;
 
     try {
-      const raw = await this.queryLLM(prompt, systemInstruction);
-      return this.jobEnrichmentSchema.parse(raw);
+      const rawJson = await this.queryLLM(prompt, systemInstruction);
+      return this.jobEnrichmentSchema.parse(rawJson);
     } catch (err) {
       logger.warn(`${this.name} summarizeJob failed, returning mock fallback: ${err.message}`);
       return this.getMockJobEnrichment(job);

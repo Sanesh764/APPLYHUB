@@ -278,7 +278,11 @@ const Dashboard = () => {
                           className="h-10 w-10 rounded bg-slate-950 border border-slate-900 object-cover"
                         />
                         <div>
-                          <h4 className="font-bold text-xs md:text-sm text-white">{job.title}</h4>
+                          <h4 className="font-bold text-xs md:text-sm text-white">
+                            <Link to={`/jobs/${job.id}`} className="hover:text-blue-400 transition-colors">
+                              {job.title}
+                            </Link>
+                          </h4>
                           <span className="text-[10px] text-slate-500 mt-1 block">{job.companyName} • {job.location}</span>
                         </div>
                       </div>

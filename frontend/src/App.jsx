@@ -18,6 +18,7 @@ import Dashboard from "./pages/Dashboard";
 import Onboarding from "./pages/Onboarding";
 import Resumes from "./pages/Resumes";
 import JobSearch from "./pages/JobSearch";
+import JobDetails from "./pages/JobDetails";
 import Tracker from "./pages/Tracker";
 import Profile from "./pages/Profile";
 import AdminDashboard from "./pages/AdminDashboard";
@@ -170,6 +171,16 @@ const AppRoutes = () => {
           <ProtectedRoute>
             <DashboardLayout>
               <JobSearch />
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/jobs/:jobId"
+        element={
+          <ProtectedRoute>
+            <DashboardLayout>
+              <JobDetails />
             </DashboardLayout>
           </ProtectedRoute>
         }

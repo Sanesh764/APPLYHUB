@@ -1,5 +1,8 @@
-const { providers, allProviders } = require("./providers");
+const { providers } = require("./providers");
 const enrichmentService = require("./jobEnrichment.service");
+const matchingService = require("./matching.service");
+const countryService = require("./country.service");
+const Resume = require("../models/Resume");
 const logger = require("../config/logger");
 
 /**
@@ -8,20 +11,22 @@ const logger = require("../config/logger");
  * -----------------------------------------------------------------------------
  * Fans out a search across every enabled provider, normalizes + deterministically
  * enriches each result, removes duplicates across sources, applies filters, and
- * ranks by relevance. Provider failures are isolated — one dead source never
- * breaks the aggregate.
+ * ranks by relevance.
  */
 class JobAggregatorService {
   /**
    * @param {string} query
    * @param {Object} filters  { location, company, remoteType, employmentType,
-   *   experience, salary, skills(csv|array), postedWithin(days) }
+   *   experience, salary, skills, postedWithin, country }
+   * @param {string} userId
    * @returns {Promise<Array<Object>>} enriched, deduped, filtered, ranked jobs
    */
-  async search(query = "", filters = {}) {
+  async search(query = "", filters = {}, userId = null) {
     const start = Date.now();
+    const targetCountry = filters.country || "India";
+    
     logger.info(
-      `Aggregator: searching "${query || "*"}" across [${providers.map((p) => p.name).join(", ")}]`
+      `Aggregator: searching "${query || "*"}" for country "${targetCountry}" across [${providers.map((p) => p.name).join(", ")}]`
     );
 
     // 1. Parallel fan-out — allSettled so a rejection can never bubble up.
@@ -52,67 +57,93 @@ class JobAggregatorService {
       })
       .filter(Boolean);
 
-    // 3. Duplicate detection across providers (keep newest)
+    // 3. Duplicate detection across providers (keep newest) (Requirement 6)
     const deduped = this.deduplicate(enriched);
 
-    // 4. Filters
-    const filtered = this.applyFilters(deduped, filters);
+    // 4. Country-agnostic filtering (Requirement 1)
+    const countryFiltered = deduped.filter((job) =>
+      countryService.allowsCountryApplicants(job, targetCountry)
+    );
 
-    // 5. Rank by relevance
-    const ranked = this.rank(filtered, query);
+    // 5. Apply user filters
+    const filtered = this.applyFilters(countryFiltered, filters);
+
+    // 6. Retrieve active resume for weighted ranking (Requirement 8)
+    let resume = null;
+    if (userId) {
+      try {
+        resume = await Resume.findOne({ userId, isActive: true });
+      } catch (err) {
+        logger.warn(`Aggregator: failed to fetch resume for user ${userId} — ${err.message}`);
+      }
+    }
+
+    // 7. Rank by weighted relevance (Requirement 8)
+    const ranked = await this.rank(filtered, query, targetCountry, resume);
 
     logger.info(
-      `Aggregator: fetched ${rawJobs.length} → deduped ${deduped.length} → filtered ${filtered.length} in ${Date.now() - start}ms`
+      `Aggregator: fetched ${rawJobs.length} → deduped ${deduped.length} → country filtered ${countryFiltered.length} → final filtered ${filtered.length} in ${Date.now() - start}ms`
     );
     return ranked;
   }
 
   /**
-   * Build a composite identity key and drop duplicates, preferring the most
-   * recently posted copy. Two jobs collide if they share the same normalized
-   * apply URL, OR the same normalized (title + company + location) triple.
+   * Jaccard description similarity helper.
    */
-  deduplicate(jobs) {
-    const byKey = new Map();
-
-    for (const job of jobs) {
-      const keys = this.dedupKeys(job);
-      // Find an existing bucket any of this job's keys already map to.
-      let existingKey = keys.find((k) => byKey.has(k));
-
-      if (!existingKey) {
-        // New job — register all its keys pointing at it.
-        for (const k of keys) byKey.set(k, job);
-        continue;
-      }
-
-      const incumbent = byKey.get(existingKey);
-      const keepIncoming = new Date(job.postedAt) > new Date(incumbent.postedAt);
-      if (keepIncoming) {
-        // Replace incumbent everywhere and register the incoming job's keys too.
-        for (const [k, v] of byKey.entries()) {
-          if (v === incumbent) byKey.set(k, job);
-        }
-        for (const k of keys) byKey.set(k, job);
-      }
-    }
-
-    return Array.from(new Set(byKey.values()));
+  getDescriptionSimilarity(desc1, desc2) {
+    if (!desc1 || !desc2) return 0;
+    const d1 = desc1.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).slice(0, 100);
+    const d2 = desc2.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).slice(0, 100);
+    const s1 = new Set(d1);
+    const s2 = new Set(d2);
+    const intersect = new Set([...s1].filter(x => s2.has(x)));
+    const union = new Set([...s1, ...s2]);
+    if (union.size === 0) return 0;
+    return intersect.size / union.size;
   }
 
-  dedupKeys(job) {
-    const keys = [];
-    const norm = (s) => (s || "").toString().toLowerCase().replace(/\s+/g, " ").trim();
-
-    const url = norm(job.applyUrl).replace(/[?#].*$/, "").replace(/\/$/, "");
-    if (url) keys.push(`url:${url}`);
-
-    const title = norm(job.title);
-    const company = norm(job.company);
-    const location = norm(job.location);
-    if (title && company) keys.push(`tcl:${title}|${company}|${location}`);
-
-    return keys.length ? keys : [`id:${job.source}:${job.externalId}`];
+  /**
+   * Better duplicate detection (Requirement 6).
+   * Checks company, title, apply URL, location, and description similarity.
+   */
+  deduplicate(jobs) {
+    const deduped = [];
+    
+    for (const incoming of jobs) {
+      let isDuplicate = false;
+      
+      for (let i = 0; i < deduped.length; i++) {
+        const existing = deduped[i];
+        
+        // 1. Direct apply url match
+        const urlMatch = incoming.applyUrl && existing.applyUrl && 
+          incoming.applyUrl.replace(/[?#].*$/, "").replace(/\/$/, "") === existing.applyUrl.replace(/[?#].*$/, "").replace(/\/$/, "");
+          
+        // 2. Title + Company + Location match
+        const norm = (s) => (s || "").toString().toLowerCase().replace(/[^a-z0-9]/g, "").trim();
+        const titleMatch = norm(incoming.title) === norm(existing.title);
+        const companyMatch = norm(incoming.company) === norm(existing.company);
+        const locationMatch = norm(incoming.location) === norm(existing.location);
+        
+        // 3. Description similarity
+        const descSim = this.getDescriptionSimilarity(incoming.description, existing.description);
+        
+        if (urlMatch || (companyMatch && titleMatch && (locationMatch || descSim > 0.75))) {
+          isDuplicate = true;
+          // Keep the newest posting
+          if (new Date(incoming.postedAt) > new Date(existing.postedAt)) {
+            deduped[i] = incoming;
+          }
+          break;
+        }
+      }
+      
+      if (!isDuplicate) {
+        deduped.push(incoming);
+      }
+    }
+    
+    return deduped;
   }
 
   applyFilters(jobs, filters) {
@@ -169,28 +200,85 @@ class JobAggregatorService {
   }
 
   /**
-   * Relevance = keyword hits (title weighted heavily) + recency bonus.
-   * Without a query, ranking is recency-only.
+   * Smart weighted ranking algorithm (Requirement 8):
+   * 40% Resume Match
+   * 20% Country Priority (e.g. India Priority)
+   * 15% Freshness
+   * 10% Salary
+   * 10% Skill Match (search query relevance)
+   * 5% Company Quality
    */
-  rank(jobs, query) {
+  async rank(jobs, query, country = "India", resume = null) {
     const q = (query || "").toLowerCase().trim();
     const terms = q ? q.split(/\s+/).filter(Boolean) : [];
     const now = Date.now();
 
     const scored = jobs.map((job) => {
       let score = 0;
+
+      // 1. Resume Match (40%)
+      let resumeScore = 0;
+      if (resume && resume.parsedData) {
+        resumeScore = matchingService.calculateKeywordScore(resume.parsedData, job);
+      }
+      score += (resumeScore / 100) * 40; // 0 to 40 points
+
+      // 2. Country Priority (20%)
+      let countryScore = 0;
+      const tier = countryService.countryTier(job, country);
+      if (tier === 0) countryScore = 20;      // Local onsite/hybrid
+      else if (tier === 1) countryScore = 15; // Local remote
+      else if (tier === 2) countryScore = 10;  // Global remote open to country
+      else countryScore = 0;
+      score += countryScore; // 0 to 20 points
+
+      // 3. Freshness (15%)
+      let freshnessScore = 0;
+      const ageDays = (now - new Date(job.postedAt).getTime()) / (24 * 60 * 60 * 1000);
+      if (ageDays <= 1) freshnessScore = 15;
+      else if (ageDays <= 3) freshnessScore = 12;
+      else if (ageDays <= 7) freshnessScore = 9;
+      else if (ageDays <= 14) freshnessScore = 5;
+      else if (ageDays <= 30) freshnessScore = 2;
+      else freshnessScore = 0;
+      score += freshnessScore; // 0 to 15 points
+
+      // 4. Salary (10%)
+      let salaryScore = 0;
+      if (job.salaryMax || job.salaryMin) {
+        const val = job.salaryMax || job.salaryMin || 0;
+        if (val > 1500000) salaryScore = 10;
+        else if (val >= 600000) salaryScore = 7;
+        else salaryScore = 4;
+      }
+      score += salaryScore; // 0 to 10 points
+
+      // 5. Skill Match (10%)
+      let skillMatchScore = 0;
       if (terms.length) {
         const title = (job.title || "").toLowerCase();
         const desc = (job.description || "").toLowerCase();
+        const jobSkills = (job.skills || []).map(s => s.toLowerCase());
+        
+        let matches = 0;
         for (const term of terms) {
-          if (title.includes(term)) score += 10;
-          if (desc.includes(term)) score += 2;
-          if ((job.skills || []).some((s) => s.toLowerCase().includes(term))) score += 5;
+          if (title.includes(term)) matches += 3;
+          if (desc.includes(term)) matches += 0.5;
+          if (jobSkills.some(s => s.includes(term))) matches += 1.5;
         }
+        skillMatchScore = Math.min(10, matches * 2);
       }
-      // Recency bonus: up to +5 for jobs posted within ~30 days
-      const ageDays = (now - new Date(job.postedAt).getTime()) / (24 * 60 * 60 * 1000);
-      score += Math.max(0, 5 - ageDays / 6);
+      score += skillMatchScore; // 0 to 10 points
+
+      // 6. Company Quality (5%)
+      let companyQualityScore = 2;
+      const c = (job.company || "").toLowerCase();
+      const topBrands = ["google", "microsoft", "amazon", "meta", "apple", "netflix", "stripe", "figma", "coinbase", "dropbox", "gitlab", "razorpay", "paytm", "swiggy", "zomato", "wipro", "infosys", "tcs"];
+      if (topBrands.some(brand => c.includes(brand)) || job.logo || job.companyWebsite !== "Not Specified") {
+        companyQualityScore = 5;
+      }
+      score += companyQualityScore; // 0 to 5 points
+
       return { job, score };
     });
 

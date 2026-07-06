@@ -2,14 +2,6 @@ const mongoose = require("mongoose");
 
 /**
  * Job — a cached, enriched listing aggregated from an external provider.
- *
- * This is the SHARED, per-listing record. Per-user signals (matchScore,
- * matchingSkills, missingSkills, recommendation) are NOT stored here — they are
- * computed against the requesting user's active resume and cached separately in
- * the AIAnalysis collection, then merged into API responses by the controller.
- *
- * Deterministic fields are populated by services/jobEnrichment.service.js at
- * fetch time. `summary` / `preferredSkills` are filled lazily by the AI pass.
  */
 const JobSchema = new mongoose.Schema(
   {
@@ -39,8 +31,30 @@ const JobSchema = new mongoose.Schema(
     education: { type: String, default: "Not Specified" },
     responsibilities: { type: [String], default: [] },
 
-    summary: { type: String, default: "" }, // AI-generated, cached globally
+    summary: { type: String, default: "" }, // AI-generated summary
     description: { type: String, required: true },
+
+    // Company Info
+    companyWebsite: { type: String, default: "Not Specified" },
+    companySize: { type: String, default: "Not Specified" },
+    companyIndustry: { type: String, default: "Not Specified" },
+    companyDescription: { type: String, default: "Not Specified" },
+
+    // Benefits & Eligibility
+    benefits: { type: [String], default: [] },
+    visaSponsorship: { type: String, default: "Not Specified" },
+    indiaEligible: { type: String, default: "Not Specified" },
+
+    // Internship details
+    isInternship: { type: Boolean, default: false, index: true },
+    internshipDetails: {
+      stipend: { type: String, default: "Not Disclosed" },
+      duration: { type: String, default: "Not Disclosed" },
+      internshipType: { type: String, default: "Not Disclosed" },
+      ppoAvailability: { type: String, default: "Not Disclosed" },
+      startDate: { type: String, default: "Not Disclosed" },
+      eligibility: { type: String, default: "Not Disclosed" }
+    },
 
     source: { type: String, required: true, index: true },
     externalId: { type: String, required: true, index: true },

@@ -5,7 +5,7 @@ class MatchingService {
   /**
    * Calculate a hybrid matching score between a resume profile and a job description.
    * Weight breakdown:
-   * - 60%: Semantic AI analysis (via Gemini/OpenAI)
+   * - 60%: Semantic AI analysis (via Gemini/OpenAI/Nvidia/DeepSeek)
    * - 40%: Local deterministic keyword/technology matching
    * @param {Object} parsedResumeData 
    * @param {Object} job 
@@ -38,9 +38,15 @@ class MatchingService {
         why: aiResult.explanation,
         advantages: aiResult.advantages,
         disadvantages: aiResult.disadvantages,
-        matchingSkills,
+        matchingSkills: aiResult.matchingSkills && aiResult.matchingSkills.length ? aiResult.matchingSkills : matchingSkills,
         missingSkills,
-        recommendation,
+        resumeSuggestions: aiResult.resumeSuggestions || [],
+        recommendation: aiResult.recommendation || recommendation,
+        interviewReadiness: aiResult.interviewReadiness || "Not Specified",
+        difficultyLevel: aiResult.difficultyLevel || "Not Specified",
+        interviewTopics: aiResult.interviewTopics || [],
+        prepRoadmap: aiResult.prepRoadmap || [],
+        learningResources: aiResult.learningResources || [],
         requiredCertifications: aiResult.requiredCertifications,
         requiredExperienceNeeded: aiResult.requiredExperienceNeeded,
         keywordScore,
@@ -58,7 +64,13 @@ class MatchingService {
         disadvantages: ["AI comparison timed out."],
         matchingSkills,
         missingSkills: [],
+        resumeSuggestions: ["Incorporate more keywords from the job description."],
         recommendation: this.buildRecommendation(50, []),
+        interviewReadiness: "Requires Prep",
+        difficultyLevel: "Medium",
+        interviewTopics: ["Core Javascript/TypeScript concepts", "Framework-specific best practices"],
+        prepRoadmap: ["Review the job description carefully.", "Identify core skills requested and prepare examples."],
+        learningResources: [],
         requiredCertifications: [],
         requiredExperienceNeeded: "Not assessed.",
         keywordScore: 50,
@@ -121,7 +133,6 @@ class MatchingService {
    * Helper to perform local Jaccard-like matching of technology keywords
    */
   calculateKeywordScore(resume, job) {
-    // 1. Gather all candidate keywords in lowercase
     const candidateKeywords = new Set(
       [
         ...(resume.skills || []),
@@ -130,7 +141,6 @@ class MatchingService {
       ].map((k) => k.toLowerCase().trim())
     );
 
-    // Add project specific technologies
     if (resume.projects) {
       resume.projects.forEach((p) => {
         if (p.technologies) {
@@ -141,10 +151,8 @@ class MatchingService {
 
     if (candidateKeywords.size === 0) return 0;
 
-    // 2. Identify expected keywords in the job description & title
     const jobText = `${job.title} ${job.description} ${(job.requirements || []).join(" ")}`.toLowerCase();
     
-    // We search for a list of standard tech stack keywords to evaluate match relevance
     const standardKeywords = [
       "javascript", "typescript", "python", "java", "c++", "c#", "ruby", "go", "golang", "php", "rust", "scala",
       "react", "angular", "vue", "next.js", "nuxt", "node.js", "express", "django", "flask", "fastapi", "spring",
@@ -156,17 +164,14 @@ class MatchingService {
     ];
 
     const expectedKeywords = standardKeywords.filter((keyword) => {
-      // Find if standard keyword exists as a word or substring in the job description
       const regex = new RegExp(`\\b${this.escapeRegExp(keyword)}\\b`, "i");
       return regex.test(jobText);
     });
 
     if (expectedKeywords.length === 0) {
-      // If no expected keywords match, return a base level Jaccard match of 50%
       return 50;
     }
 
-    // 3. Count candidate's overlapping keywords
     let matchesCount = 0;
     expectedKeywords.forEach((keyword) => {
       if (candidateKeywords.has(keyword)) {

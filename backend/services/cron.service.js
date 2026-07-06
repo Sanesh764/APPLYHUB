@@ -19,13 +19,23 @@ const logger = require("../config/logger");
 
 // Popular default searches used to keep the cache warm for first-load / browse.
 const WARM_QUERIES = [
-  "software engineer",
-  "frontend developer",
-  "backend developer",
-  "full stack developer",
-  "data scientist",
-  "devops engineer",
-  "product manager",
+  "Software Engineer India",
+  "Frontend Developer India",
+  "Backend Developer India",
+  "Full Stack Developer India",
+  "React Developer India",
+  "Node.js Developer India",
+  "Java Developer India",
+  "Python Developer India",
+  "AI Engineer India",
+  "Machine Learning Engineer India",
+  "Data Analyst India",
+  "DevOps Engineer India",
+  "Cloud Engineer India",
+  "Software Testing India",
+  "Remote India Jobs",
+  "Internship India",
+  "Fresher Jobs India"
 ];
 
 // Jobs not re-seen by a fetch within this window are pruned.

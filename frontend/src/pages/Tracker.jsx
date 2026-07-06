@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import api from "../services/api";
 import Card from "../components/ui/Card";
 import Button from "../components/ui/Button";
@@ -122,7 +123,9 @@ const Tracker = () => {
                               />
                               <div className="min-w-0 flex-1">
                                 <h4 className="font-bold text-xs md:text-sm text-white truncate" title={app.jobId.title}>
-                                  {app.jobId.title}
+                                  <Link to={`/jobs/${app.jobId._id || app.jobId.id || app.jobId}`} className="hover:text-blue-400 transition-colors">
+                                    {app.jobId.title}
+                                  </Link>
                                 </h4>
                                 <p className="text-[10px] text-slate-500 font-semibold mt-0.5 truncate">
                                   {app.jobId.companyName}

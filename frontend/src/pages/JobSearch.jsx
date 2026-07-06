@@ -1,62 +1,88 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { Link } from "react-router-dom";
 import api from "../services/api";
 import Card from "../components/ui/Card";
 import Input from "../components/ui/Input";
 import Button from "../components/ui/Button";
 import CoverLetterModal from "./CoverLetterModal";
-import { Search, MapPin, DollarSign, Briefcase, FileText, CheckCircle, Save, Share2, Compass, AlertCircle, Sparkles, Loader2 } from "lucide-react";
+import {
+  Search,
+  MapPin,
+  DollarSign,
+  Briefcase,
+  FileText,
+  Bookmark,
+  CheckCircle,
+  Share2,
+  Compass,
+  Sparkles,
+  Clock,
+  ExternalLink,
+  Loader2,
+} from "lucide-react";
+
+const INITIAL_FILTERS = {
+  query: "",
+  location: "",
+  workMode: "any",
+  salary: "",
+};
 
 const JobSearch = () => {
   const [jobs, setJobs] = useState([]);
-  const [selectedJob, setSelectedJob] = useState(null);
+  const [pagination, setPagination] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Filters state
-  const [filters, setFilters] = useState({
-    query: "",
-    location: "",
-    workMode: "any",
-    salary: "",
-  });
+  const [filters, setFilters] = useState(INITIAL_FILTERS);
 
-  const [savingApp, setSavingApp] = useState(false);
-  const [applyingApp, setApplyingApp] = useState(false);
+  // Per-job "save to tracker" progress + which jobs are already saved.
+  const [savingId, setSavingId] = useState(null);
+  const [savedIds, setSavedIds] = useState(() => new Set());
 
-  // Cover Letter Modal state
-  const [isCLOpen, setIsCLOpen] = useState(false);
+  // Cover letter modal is bound to a single job at a time.
+  const [coverLetterJob, setCoverLetterJob] = useState(null);
 
-  const fetchJobs = async (searchFilters = filters) => {
-    try {
-      setLoading(true);
-      setError("");
-      
-      const queryParams = {};
-      if (searchFilters.query) queryParams.query = searchFilters.query;
-      if (searchFilters.location) queryParams.location = searchFilters.location;
-      if (searchFilters.workMode && searchFilters.workMode !== "any") queryParams.workMode = searchFilters.workMode;
-      if (searchFilters.salary) queryParams.salary = searchFilters.salary;
+  // Translate the filter form into the backend's query-param shape.
+  const buildParams = useCallback((f, page) => {
+    const params = { page, limit: 12 };
+    if (f.query) params.query = f.query;
+    if (f.location) params.location = f.location;
+    if (f.workMode && f.workMode !== "any") params.remoteType = f.workMode;
+    if (f.salary) params.salary = f.salary;
+    return params;
+  }, []);
 
-      const res = await api.get("/jobs", { params: queryParams });
-      const jobList = res.data.data.jobs;
-      setJobs(jobList);
+  const fetchJobs = useCallback(
+    async (searchFilters, page = 1, append = false) => {
+      try {
+        if (append) setLoadingMore(true);
+        else setLoading(true);
+        setError("");
 
-      if (jobList.length > 0) {
-        setSelectedJob(jobList[0]);
-      } else {
-        setSelectedJob(null);
+        const res = await api.get("/jobs", {
+          params: buildParams(searchFilters, page),
+        });
+        const { jobs: jobList = [], pagination: meta = null } = res.data.data;
+
+        setJobs((prev) => (append ? [...prev, ...jobList] : jobList));
+        setPagination(meta);
+      } catch (err) {
+        setError(err.response?.data?.message || "Failed to load matching jobs.");
+        if (!append) setJobs([]);
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
       }
-    } catch (err) {
-      setError(err.response?.data?.message || "Failed to load matching jobs catalog.");
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [buildParams]
+  );
 
   useEffect(() => {
-    fetchJobs();
-  }, []);
+    fetchJobs(INITIAL_FILTERS, 1, false);
+  }, [fetchJobs]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -65,67 +91,93 @@ const JobSearch = () => {
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
-    fetchJobs();
+    setSuccess("");
+    fetchJobs(filters, 1, false);
   };
 
+  const handleLoadMore = () => {
+    if (pagination?.hasMore) {
+      fetchJobs(filters, pagination.page + 1, true);
+    }
+  };
+
+  // Bookmark a job into the application tracker (status: saved).
   const handleSaveJob = async (jobId) => {
-    setSavingApp(true);
+    setSavingId(jobId);
     setError("");
     setSuccess("");
     try {
       await api.post("/applications", { jobId, status: "saved" });
-      setSuccess("Job successfully bookmarked in your application tracker!");
+      setSavedIds((prev) => new Set(prev).add(jobId));
+      setSuccess("Job saved to your application tracker.");
     } catch (err) {
       setError(err.response?.data?.message || "Could not save job.");
     } finally {
-      setSavingApp(false);
+      setSavingId(null);
     }
   };
 
-  const handleApplyNow = async (jobId) => {
-    setApplyingApp(true);
-    setError("");
-    setSuccess("");
-    try {
-      await api.post("/applications", { jobId, status: "applied" });
-      setSuccess("Success! Application package prepared and confirmation email sent. Redirecting to official application page...");
-      
-      // Redirect to official job page in a new tab
-      if (selectedJob && selectedJob.applyUrl) {
-        setTimeout(() => {
-          window.open(selectedJob.applyUrl, "_blank");
-        }, 1500);
-      }
-    } catch (err) {
-      setError(err.response?.data?.message || "Application submission failed.");
-    } finally {
-      setApplyingApp(false);
+  // Apply = open the official posting only. No application record is created.
+  const handleApply = (job) => {
+    if (!job.applyUrl) {
+      setError("No application link is available for this job.");
+      return;
     }
+    window.open(job.applyUrl, "_blank", "noopener,noreferrer");
   };
 
   const handleShare = (job) => {
-    const shareText = `Check out this job: ${job.title} at ${job.companyName}. Match score: ${job.matchPercentage}%!`;
-    navigator.clipboard.writeText(shareText);
+    const parts = [`Check out this job: ${job.title} at ${job.company}`];
+    if (job.matchScore != null) parts.push(`Match score: ${job.matchScore}%`);
+    if (job.applyUrl) parts.push(job.applyUrl);
+    navigator.clipboard.writeText(parts.join(" — "));
+    setError("");
     setSuccess("Job details copied to clipboard!");
   };
 
-  // Color helper for match badge
+  // Color helper for the match badge.
   const getMatchColor = (score) => {
     if (score >= 80) return "bg-emerald-500/10 border-emerald-500/20 text-emerald-400";
     if (score >= 60) return "bg-amber-500/10 border-amber-500/20 text-amber-400";
     return "bg-rose-500/10 border-rose-500/20 text-rose-400";
   };
 
+  const formatSalary = (job) => {
+    const currency = job.currency || "$";
+    const fmt = (n) => Number(n).toLocaleString();
+    if (job.salaryMin && job.salaryMax) return `${currency}${fmt(job.salaryMin)} – ${currency}${fmt(job.salaryMax)}`;
+    if (job.salaryMax) return `Up to ${currency}${fmt(job.salaryMax)}`;
+    if (job.salaryMin) return `From ${currency}${fmt(job.salaryMin)}`;
+    if (job.salary) return typeof job.salary === "number" ? `${currency}${fmt(job.salary)}` : job.salary;
+    return "Not disclosed";
+  };
+
+  const formatPosted = (date) => {
+    if (!date) return "Recently";
+    const d = new Date(date);
+    return Number.isNaN(d.getTime()) ? "Recently" : d.toLocaleDateString();
+  };
+
   return (
-    <div className="min-h-screen bg-slate-950 text-white p-4 md:p-10 relative overflow-hidden flex flex-col">
+    <div className="min-h-screen bg-slate-950 text-white p-4 md:p-10 relative overflow-hidden">
       {/* Decorative Glows */}
       <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-600/5 rounded-full blur-[120px] pointer-events-none"></div>
       <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-indigo-600/5 rounded-full blur-[120px] pointer-events-none"></div>
 
-      <div className="max-w-7xl mx-auto w-full z-10 flex-1 flex flex-col">
+      <div className="max-w-7xl mx-auto w-full z-10 relative">
+        {/* Page heading */}
+        <div className="mb-8">
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
+            <Compass className="h-7 w-7 text-blue-400" /> Discover Jobs
+          </h1>
+          <p className="text-sm text-slate-500 mt-1.5">
+            Browse openings matched to your resume. Apply on the company's official page.
+          </p>
+        </div>
+
         {/* Filters bar */}
         <Card className="p-4 mb-8">
-          <form onSubmit={handleSearchSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+          <form onSubmit={handleSearchSubmit} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
             <Input
               id="query"
               name="query"
@@ -138,7 +190,7 @@ const JobSearch = () => {
               id="location"
               name="location"
               label="Location"
-              placeholder="e.g. Pune india, Remote"
+              placeholder="e.g. Pune, Remote"
               value={filters.location}
               onChange={handleInputChange}
             />
@@ -156,8 +208,17 @@ const JobSearch = () => {
                 <option value="onsite">Onsite</option>
               </select>
             </div>
+            <Input
+              id="salary"
+              name="salary"
+              type="number"
+              label="Min Salary"
+              placeholder="e.g. 50000"
+              value={filters.salary}
+              onChange={handleInputChange}
+            />
             <Button type="submit" variant="primary" className="py-3.5">
-              <Search className="h-4.5 w-4.5" /> Search Jobs
+              <Search className="h-4.5 w-4.5" /> Search
             </Button>
           </form>
         </Card>
@@ -174,197 +235,188 @@ const JobSearch = () => {
           </div>
         )}
 
-        {/* Dashboard Split Panel */}
+        {/* Card grid */}
         {loading ? (
-          <div className="flex-1 flex flex-col items-center justify-center py-24 gap-4">
+          <div className="flex flex-col items-center justify-center py-24 gap-4">
             <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
-            <p className="text-slate-500 text-sm animate-pulse">Running AI job matching checks...</p>
+            <p className="text-slate-500 text-sm animate-pulse">Running AI job matching...</p>
           </div>
         ) : jobs.length === 0 ? (
-          <Card className="flex-1 flex flex-col items-center justify-center py-24 text-center">
-            <Compass className="h-16 w-16 text-slate-700 mb-4 animate-spin-slow" />
-            <h3 className="text-xl font-bold">No Matching Jobs Discovered</h3>
+          <Card className="flex flex-col items-center justify-center py-24 text-center">
+            <Compass className="h-16 w-16 text-slate-700 mb-4" />
+            <h3 className="text-xl font-bold">No Matching Jobs Found</h3>
             <p className="text-slate-500 text-sm mt-2 max-w-sm px-6">
-              Adjust your search keywords, location filters, or onboarding Wizard preferences.
+              Adjust your search keywords, location, or work-mode filters and try again.
             </p>
           </Card>
         ) : (
-          <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* Left list: 5 Columns */}
-            <div className="lg:col-span-5 flex flex-col gap-4 max-h-[70vh] overflow-y-auto pr-2">
-              {jobs.map((job) => (
-                <div
-                  key={job.id}
-                  onClick={() => setSelectedJob(job)}
-                  className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer ${
-                    selectedJob?.id === job.id
-                      ? "bg-blue-600/5 border-blue-500/30 shadow-lg shadow-blue-500/5"
-                      : "bg-slate-900/40 border-white/5 hover:border-slate-800"
-                  }`}
-                >
-                  <div className="flex items-start gap-4">
-                    <img
-                      src={job.companyLogo}
-                      alt={job.companyName}
-                      className="h-11 w-11 rounded-lg bg-slate-950 border border-slate-900 object-cover"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-sm md:text-base text-white truncate">{job.title}</h3>
-                      <p className="text-xs text-slate-400 mt-1 font-medium">{job.companyName}</p>
-                      
-                      <div className="flex flex-wrap items-center gap-3 mt-3.5 text-xs text-slate-500 font-semibold">
-                        <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{job.location}</span>
-                        <span className="flex items-center gap-1 uppercase"><Briefcase className="h-3.5 w-3.5" />{job.workMode}</span>
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {jobs.map((job) => {
+                const saved = savedIds.has(job.id);
+                return (
+                  <Card key={job.id} className="flex flex-col gap-4 p-6" hoverEffect>
+                    {/* Header: logo, title, company, match badge */}
+                    <div className="flex items-start gap-4">
+                      {job.logo ? (
+                        <img
+                          src={job.logo}
+                          alt={job.company}
+                          className="h-12 w-12 rounded-xl bg-slate-950 border border-slate-900 object-cover flex-shrink-0"
+                        />
+                      ) : (
+                        <div className="h-12 w-12 rounded-xl bg-slate-950 border border-slate-900 flex items-center justify-center flex-shrink-0">
+                          <Briefcase className="h-5 w-5 text-slate-600" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-bold text-base text-white leading-tight line-clamp-2">
+                          <Link to={`/jobs/${job.id}`} className="hover:text-blue-400 transition-colors">
+                            {job.title}
+                          </Link>
+                        </h3>
+                        <p className="text-xs text-blue-400 mt-1 font-semibold truncate">{job.company}</p>
                       </div>
+                      {job.matchScore != null && (
+                        <span
+                          className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-black border uppercase tracking-wider flex-shrink-0 ${getMatchColor(
+                            job.matchScore
+                          )}`}
+                        >
+                          {job.matchScore}%
+                        </span>
+                      )}
                     </div>
 
-                    {/* Match Badge */}
-                    {job.matchPercentage !== undefined && (
-                      <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-black border uppercase tracking-wider ${getMatchColor(job.matchPercentage)}`}>
-                        {job.matchPercentage}% Match
+                    {/* Meta row */}
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-400 font-medium">
+                      <span className="flex items-center gap-1">
+                        <MapPin className="h-3.5 w-3.5" />
+                        {job.location || "Location N/A"}
                       </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Right details: 7 Columns */}
-            <div className="lg:col-span-7 h-full">
-              {selectedJob && (
-                <Card className="flex flex-col gap-6 max-h-[70vh] overflow-y-auto">
-                  {/* Job Header Details */}
-                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-white/5 pb-6">
-                    <div className="flex items-center gap-4">
-                      <img
-                        src={selectedJob.companyLogo}
-                        alt={selectedJob.companyName}
-                        className="h-14 w-14 rounded-xl bg-slate-950 border border-slate-900 object-cover"
-                      />
-                      <div>
-                        <h2 className="text-xl font-bold text-white leading-tight">{selectedJob.title}</h2>
-                        <span className="text-xs text-blue-400 font-semibold mt-1 block">{selectedJob.companyName}</span>
-                        <p className="text-xs text-slate-500 mt-1">
-                          Posted: {new Date(selectedJob.postedDate).toLocaleDateString()} • Source: {selectedJob.source.toUpperCase()}
-                        </p>
-                      </div>
+                      {job.remoteType && (
+                        <span className="flex items-center gap-1 capitalize">
+                          <Briefcase className="h-3.5 w-3.5" />
+                          {job.remoteType}
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3.5 w-3.5" />
+                        {formatPosted(job.postedAt)}
+                      </span>
                     </div>
 
-                    {/* Action buttons */}
-                    <div className="flex items-center gap-3 w-full md:w-auto">
+                    {/* Salary */}
+                    <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-200">
+                      <DollarSign className="h-4 w-4 text-slate-500 -ml-0.5" />
+                      {formatSalary(job)}
+                    </div>
+
+                    {/* Summary / description snippet */}
+                    <p className="text-xs text-slate-400 leading-relaxed line-clamp-3 flex-1">
+                      {job.summary || job.description || "No description provided for this posting."}
+                    </p>
+
+                    {/* AI match rationale */}
+                    {job.why && (
+                      <div className="bg-blue-600/5 border border-blue-500/10 rounded-xl p-3 flex gap-2">
+                        <Sparkles className="h-4 w-4 text-blue-400 flex-shrink-0 mt-0.5" />
+                        <p className="text-[11px] text-slate-300 leading-relaxed line-clamp-3">{job.why}</p>
+                      </div>
+                    )}
+
+                    {/* Skills tags */}
+                    {Array.isArray(job.skills) && job.skills.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {job.skills.slice(0, 5).map((skill) => (
+                          <span
+                            key={skill}
+                            className="px-2 py-0.5 rounded-md bg-slate-800/60 border border-slate-800 text-[10px] font-medium text-slate-300"
+                          >
+                            {skill}
+                          </span>
+                        ))}
+                        {job.skills.length > 5 && (
+                          <span className="px-2 py-0.5 text-[10px] font-medium text-slate-500">
+                            +{job.skills.length - 5} more
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-2 border-t border-white/5 pt-4 mt-auto">
                       <Button
                         type="button"
                         variant="glass"
-                        onClick={() => handleShare(selectedJob)}
-                        className="p-3"
+                        onClick={() => handleShare(job)}
+                        className="p-2.5"
+                        aria-label="Share job"
                       >
-                        <Share2 className="h-4.5 w-4.5" />
+                        <Share2 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="glass"
+                        onClick={() => setCoverLetterJob(job)}
+                        className="p-2.5"
+                        aria-label="Generate cover letter"
+                      >
+                        <FileText className="h-4 w-4" />
                       </Button>
                       <Button
                         type="button"
                         variant="secondary"
-                        onClick={() => handleSaveJob(selectedJob.id)}
-                        loading={savingApp}
-                        className="flex-1 md:flex-initial"
+                        onClick={() => handleSaveJob(job.id)}
+                        loading={savingId === job.id}
+                        disabled={saved}
+                        className="flex-1 py-2.5 text-xs"
                       >
-                        <Save className="h-4.5 w-4.5" /> Save
+                        {saved ? (
+                          <>
+                            <CheckCircle className="h-4 w-4" /> Saved
+                          </>
+                        ) : (
+                          <>
+                            <Bookmark className="h-4 w-4" /> Save
+                          </>
+                        )}
                       </Button>
                       <Button
                         type="button"
                         variant="primary"
-                        onClick={() => handleApplyNow(selectedJob.id)}
-                        loading={applyingApp}
-                        className="flex-1 md:flex-initial"
+                        onClick={() => handleApply(job)}
+                        disabled={!job.applyUrl}
+                        className="flex-1 py-2.5 text-xs"
                       >
-                        Apply Now
+                        Apply <ExternalLink className="h-4 w-4" />
                       </Button>
                     </div>
-                  </div>
-
-                  {/* AI Match Stats Popover block */}
-                  {selectedJob.matchDetails && (
-                    <div className="bg-blue-600/5 border border-blue-500/10 rounded-2xl p-5 flex flex-col gap-4 animate-fade-in">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Sparkles className="h-5 w-5 text-blue-400" />
-                          <h3 className="text-sm font-extrabold text-blue-400 uppercase tracking-wider">AI Compatibility Report</h3>
-                        </div>
-                        <span className="bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold px-3 py-1 rounded-full">
-                          {selectedJob.matchPercentage}% Compatibility
-                        </span>
-                      </div>
-
-                      <p className="text-xs md:text-sm text-slate-300 leading-relaxed">
-                        {selectedJob.matchDetails.explanation}
-                      </p>
-
-                      {/* Cover letter generate quick link */}
-                      <div className="flex flex-wrap items-center justify-between border-t border-blue-500/5 pt-3 mt-1 gap-4">
-                        <span className="text-xs text-slate-500 font-medium">
-                          Need a personalized introduction packet?
-                        </span>
-                        <Button
-                          type="button"
-                          variant="glass"
-                          onClick={() => setIsCLOpen(true)}
-                          className="py-2.5 px-4 text-xs font-bold border border-blue-500/20 text-blue-400 bg-blue-500/5 hover:bg-blue-500/10"
-                          iconBefore={<FileText className="h-3.5 w-3.5" />}
-                        >
-                          Generate Cover Letter
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Core details */}
-                  <div className="grid grid-cols-3 gap-4 border-b border-white/5 pb-6 text-xs md:text-sm font-semibold text-slate-400">
-                    <div className="flex flex-col gap-1.5 p-3.5 rounded-xl bg-slate-900/60 border border-slate-900">
-                      <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Salary Range</span>
-                      <span className="text-slate-200 font-bold flex items-center">
-                        <DollarSign className="h-4 w-4 text-slate-500 -ml-1" />
-                        {selectedJob.salary ? selectedJob.salary.toLocaleString() : "Confidential"}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-col gap-1.5 p-3.5 rounded-xl bg-slate-900/60 border border-slate-900">
-                      <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Location Mode</span>
-                      <span className="text-slate-200 font-bold flex items-center gap-1 capitalize">
-                        <MapPin className="h-4 w-4 text-slate-500" />
-                        {selectedJob.workMode}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-col gap-1.5 p-3.5 rounded-xl bg-slate-900/60 border border-slate-900">
-                      <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Experience Range</span>
-                      <span className="text-slate-200 font-bold flex items-center gap-1 truncate">
-                        <Briefcase className="h-4 w-4 text-slate-500" />
-                        {selectedJob.experienceLevel || "Not Listed"}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Job Description Text */}
-                  <div>
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-3">Job Description</h3>
-                    <p className="text-xs md:text-sm text-slate-300 leading-relaxed whitespace-pre-line">
-                      {selectedJob.description}
-                    </p>
-                  </div>
-                </Card>
-              )}
+                  </Card>
+                );
+              })}
             </div>
-          </div>
+
+            {/* Load more */}
+            {pagination?.hasMore && (
+              <div className="flex justify-center mt-10">
+                <Button type="button" variant="secondary" onClick={handleLoadMore} loading={loadingMore}>
+                  Load More Jobs
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
-      {/* Cover Letter Modal Wrapper */}
-      {selectedJob && (
+      {/* Cover Letter Modal */}
+      {coverLetterJob && (
         <CoverLetterModal
-          isOpen={isCLOpen}
-          onClose={() => setIsCLOpen(false)}
-          jobId={selectedJob.id}
-          jobTitle={selectedJob.title}
-          companyName={selectedJob.companyName}
+          isOpen={!!coverLetterJob}
+          onClose={() => setCoverLetterJob(null)}
+          jobId={coverLetterJob.id}
+          jobTitle={coverLetterJob.title}
+          companyName={coverLetterJob.company}
         />
       )}
     </div>

@@ -5,6 +5,7 @@ const matchingService = require("../services/matching.service");
 const aiAnalysisService = require("../services/aiAnalysis.service");
 const aiService = require("../services/ai.service");
 const cacheService = require("../services/cache.service");
+const countryService = require("../services/country.service");
 const { sendSuccess } = require("../utils/response");
 const asyncHandler = require("../utils/asyncHandler");
 const { NotFoundError } = require("../utils/errors");
@@ -32,11 +33,11 @@ class JobController {
     const { page, limit } = this.parsePagination(req.query);
 
     // 1. Serve the aggregated+persisted id list from memory when warm.
-    const cacheKey = `search_${JSON.stringify(filters)}`;
+    const cacheKey = `search_${JSON.stringify(filters)}_${userId}`;
     let jobIds = cacheService.get(cacheKey);
 
     if (!jobIds) {
-      const enriched = await jobAggregator.search(filters.query, filters);
+      const enriched = await jobAggregator.search(filters.query, filters, userId);
       const saved = await this.persistJobs(enriched);
       jobIds = saved.map((d) => d._id.toString());
       cacheService.set(cacheKey, jobIds, SEARCH_CACHE_TTL);
@@ -80,7 +81,6 @@ class JobController {
 
   /**
    * GET /recommended — cached jobs scored against the active resume, best first.
-   * Scores a bounded recent pool to keep AI cost predictable.
    */
   getRecommended = asyncHandler(async (req, res) => {
     const userId = req.user.userId;
@@ -104,7 +104,9 @@ class JobController {
 
     const total = scored.length;
     const pageItems = scored.slice((page - 1) * limit, page * limit);
-    await this.ensureSummaries(pageItems.map((s) => s.doc));
+    const pageDocs = pageItems.map((s) => s.doc);
+    
+    await this.ensureSummaries(pageDocs);
 
     return sendSuccess(res, "Recommended jobs retrieved successfully.", {
       jobs: pageItems.map(({ doc, match }) => this.formatJob(doc, match)),
@@ -199,7 +201,6 @@ class JobController {
     let aiAnalysis = null;
     if (resume) {
       match = await this.getMatchForJob(userId, resume, job);
-      // Full, Mongo-cached analysis (ATS, cover letter, probabilities) for detail view.
       aiAnalysis = await aiAnalysisService
         .getOrCreateAnalysis(userId, resume, job)
         .catch((err) => {
@@ -244,6 +245,7 @@ class JobController {
       skills: q.skills || "",
       postedWithin: q.postedWithin || "",
       matchScore: q.matchScore || "",
+      country: q.country || "India",
     };
   }
 
@@ -278,19 +280,54 @@ class JobController {
       const arr = filters.skills.split(",").map((s) => s.trim()).filter(Boolean);
       if (arr.length) query.skills = { $in: arr.map((s) => new RegExp(this.escapeRegExp(s), "i")) };
     }
+
+    // Country filtering (Requirement 1)
+    const targetCountry = filters.country || "India";
+    const data = countryService.getCountryData(targetCountry);
+    const countryRegexes = [
+      ...data.tokens.map(t => new RegExp(this.escapeRegExp(t), "i")),
+      ...data.cities.map(c => new RegExp(this.escapeRegExp(c), "i")),
+      ...data.states.map(s => new RegExp(this.escapeRegExp(s), "i")),
+    ];
+
+    if (query.$or) {
+      // Merge with existing title/desc $or query
+      query.$and = [
+        { $or: query.$or },
+        {
+          $or: [
+            { location: { $in: countryRegexes } },
+            { location: /remote/i }
+          ]
+        }
+      ];
+      delete query.$or;
+    } else {
+      query.$or = [
+        { location: { $in: countryRegexes } },
+        { location: /remote/i }
+      ];
+    }
+
     return query;
   }
 
   /**
    * Upsert enriched jobs into the Mongo cache (one canonical record per
-   * source+externalId). Never overwrites an already-generated AI summary.
+   * source+externalId). Never overwrites AI fields.
    */
   async persistJobs(enrichedJobs) {
     const docs = await Promise.all(
       enrichedJobs.map(async (job) => {
         try {
-          // AI-owned fields are excluded so cached summaries survive a refresh.
-          const { summary, preferredSkills, ...persistable } = job;
+          // Exclude AI-owned fields from scraper upsert
+          const {
+            summary, preferredSkills, responsibilities,
+            companyWebsite, companySize, companyIndustry, companyDescription,
+            benefits, visaSponsorship, indiaEligible, isInternship, internshipDetails,
+            ...persistable
+          } = job;
+
           return await Job.findOneAndUpdate(
             { source: job.source, externalId: job.externalId },
             { $set: { ...persistable, lastFetchedAt: new Date() } },
@@ -314,26 +351,64 @@ class JobController {
   }
 
   /**
-   * Lazily generate + persist AI summaries for jobs that lack one. Runs only
-   * for the page being served. Failures degrade gracefully (summary stays "").
+   * Lazily generate + persist AI summaries for jobs that lack one.
    */
   async ensureSummaries(jobDocs) {
     await Promise.all(
       jobDocs.map(async (doc) => {
-        if (doc.summary && doc.summary.trim()) return;
+        if (doc.summary && doc.summary.trim() && doc.aiEnrichedAt) return;
         try {
           const enrich = await aiService.summarizeJob(doc.toObject ? doc.toObject() : doc);
+          
           doc.summary = enrich.summary || doc.summary;
           if (Array.isArray(enrich.preferredSkills) && enrich.preferredSkills.length) {
             doc.preferredSkills = enrich.preferredSkills;
           }
+          if (Array.isArray(enrich.responsibilities) && enrich.responsibilities.length) {
+            doc.responsibilities = enrich.responsibilities;
+          }
+          
+          doc.companyWebsite = enrich.companyWebsite || doc.companyWebsite;
+          doc.companySize = enrich.companySize || doc.companySize;
+          doc.companyIndustry = enrich.companyIndustry || doc.companyIndustry;
+          doc.companyDescription = enrich.companyDescription || doc.companyDescription;
+
+          if (Array.isArray(enrich.benefits) && enrich.benefits.length) {
+            doc.benefits = enrich.benefits;
+          }
+          doc.visaSponsorship = enrich.visaSponsorship || doc.visaSponsorship;
+          doc.indiaEligible = enrich.indiaEligible || doc.indiaEligible;
+          doc.isInternship = enrich.isInternship !== undefined ? enrich.isInternship : doc.isInternship;
+
+          if (enrich.internshipDetails) {
+            doc.internshipDetails = {
+              stipend: enrich.internshipDetails.stipend || doc.internshipDetails?.stipend || "Not Disclosed",
+              duration: enrich.internshipDetails.duration || doc.internshipDetails?.duration || "Not Disclosed",
+              internshipType: enrich.internshipDetails.internshipType || doc.internshipDetails?.internshipType || "Not Disclosed",
+              ppoAvailability: enrich.internshipDetails.ppoAvailability || doc.internshipDetails?.ppoAvailability || "Not Disclosed",
+              startDate: enrich.internshipDetails.startDate || doc.internshipDetails?.startDate || "Not Disclosed",
+              eligibility: enrich.internshipDetails.eligibility || doc.internshipDetails?.eligibility || "Not Disclosed"
+            };
+          }
+
           doc.aiEnrichedAt = new Date();
+          
           await Job.updateOne(
             { _id: doc._id },
             {
               $set: {
                 summary: doc.summary,
                 preferredSkills: doc.preferredSkills,
+                responsibilities: doc.responsibilities,
+                companyWebsite: doc.companyWebsite,
+                companySize: doc.companySize,
+                companyIndustry: doc.companyIndustry,
+                companyDescription: doc.companyDescription,
+                benefits: doc.benefits,
+                visaSponsorship: doc.visaSponsorship,
+                indiaEligible: doc.indiaEligible,
+                isInternship: doc.isInternship,
+                internshipDetails: doc.internshipDetails,
                 aiEnrichedAt: doc.aiEnrichedAt,
               },
             }
@@ -369,12 +444,30 @@ class JobController {
         missingSkills: m.missingSkills || [],
         why: m.why || m.explanation || "",
         recommendation: m.recommendation || "",
+        resumeSuggestions: m.resumeSuggestions || [],
+        interviewReadiness: m.interviewReadiness || "Not Specified",
+        difficultyLevel: m.difficultyLevel || "Not Specified",
+        interviewTopics: m.interviewTopics || [],
+        prepRoadmap: m.prepRoadmap || [],
+        learningResources: m.learningResources || [],
       };
       cacheService.set(key, match, MATCH_CACHE_TTL);
       return match;
     } catch (err) {
       logger.error(`Job Controller: match failed for ${jobDoc._id}: ${err.message}`);
-      return { matchScore: null, matchingSkills: [], missingSkills: [], why: "", recommendation: "" };
+      return {
+        matchScore: null,
+        matchingSkills: [],
+        missingSkills: [],
+        why: "",
+        recommendation: "",
+        resumeSuggestions: [],
+        interviewReadiness: "Not Specified",
+        difficultyLevel: "Not Specified",
+        interviewTopics: [],
+        prepRoadmap: [],
+        learningResources: [],
+      };
     }
   }
 
@@ -404,12 +497,43 @@ class JobController {
       postedAt: j.postedAt,
       applyUrl: j.applyUrl,
       source: j.source,
-      // Per-user match signals (null when no active resume)
+      
+      // Company Info (Requirement 5)
+      companyWebsite: j.companyWebsite || "Not Specified",
+      companySize: j.companySize || "Not Specified",
+      companyIndustry: j.companyIndustry || "Not Specified",
+      companyDescription: j.companyDescription || "Not Specified",
+
+      // Benefits & Visa (Requirement 3)
+      benefits: j.benefits || [],
+      visaSponsorship: j.visaSponsorship || "Not Specified",
+      indiaEligible: j.indiaEligible || "Not Specified",
+
+      // Internship details (Requirement 11)
+      isInternship: j.isInternship || false,
+      internshipDetails: j.internshipDetails || {
+        stipend: "Not Disclosed",
+        duration: "Not Disclosed",
+        internshipType: "Not Disclosed",
+        ppoAvailability: "Not Disclosed",
+        startDate: "Not Disclosed",
+        eligibility: "Not Disclosed"
+      },
+
+      // Per-user match signals (Requirement 4)
       matchScore: match ? match.matchScore : null,
       matchingSkills: match ? match.matchingSkills : [],
       missingSkills: match ? match.missingSkills : [],
       why: match ? match.why : "",
       recommendation: match ? match.recommendation : "",
+      
+      // Extended match signals (Requirements 4 & 10)
+      resumeSuggestions: match ? match.resumeSuggestions : [],
+      interviewReadiness: match ? match.interviewReadiness : "Not Specified",
+      difficultyLevel: match ? match.difficultyLevel : "Not Specified",
+      interviewTopics: match ? match.interviewTopics : [],
+      prepRoadmap: match ? match.prepRoadmap : [],
+      learningResources: match ? match.learningResources : [],
     };
   }
 
