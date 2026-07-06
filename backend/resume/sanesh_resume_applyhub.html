@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sanesh Kumar — Resume</title>
+<style>
+  /* ---- ATS-friendly: single column, real text, standard serif, no tables/images ---- */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: Georgia, "Times New Roman", serif;
+    color: #1a1a1a;
+    line-height: 1.4;
+    font-size: 10.5pt;
+    background: #f3f4f6;
+  }
+  .page {
+    width: 8.27in;            /* A4 width */
+    min-height: 11.69in;
+    margin: 24px auto;
+    padding: 0.55in 0.6in;
+    background: #ffffff;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+  }
+  header { text-align: center; border-bottom: 2px solid #1a1a1a; padding-bottom: 8px; margin-bottom: 12px; }
+  h1 { font-size: 22pt; margin: 0 0 2px; letter-spacing: 0.5px; }
+  .role { font-size: 11pt; font-style: italic; color: #333; margin: 0 0 6px; }
+  .contact { font-size: 9pt; color: #222; }
+  .contact a { color: #222; text-decoration: none; }
+
+  h2 {
+    font-size: 11pt;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 1px solid #999;
+    padding-bottom: 2px;
+    margin: 14px 0 6px;
+  }
+  p { margin: 4px 0; }
+  ul { margin: 4px 0 4px; padding-left: 18px; }
+  li { margin: 2px 0; }
+
+  .job-head, .proj-head { display: flex; justify-content: space-between; flex-wrap: wrap; margin-top: 6px; }
+  .job-head .left, .proj-head .left { font-weight: bold; }
+  .job-head .right, .proj-head .right { font-style: italic; color: #333; }
+  .stack { font-style: italic; color: #444; font-size: 9.5pt; margin: 1px 0 2px; }
+  .skills-line { margin: 2px 0; }
+  .skills-line b { display: inline-block; min-width: 118px; }
+  .ph { color: #b02020; }        /* placeholder — fill before sending */
+
+  .print-btn {
+    display: block; margin: 16px auto 0; padding: 10px 22px;
+    font-family: Arial, sans-serif; font-size: 13px; font-weight: 600;
+    background: #2563eb; color: #fff; border: none; border-radius: 8px; cursor: pointer;
+  }
+  .hint { text-align: center; font-family: Arial, sans-serif; font-size: 12px; color: #555; margin-top: 8px; }
+
+  @media print {
+    body { background: #fff; font-size: 10pt; }
+    .page { width: auto; min-height: auto; margin: 0; padding: 0.5in 0.55in; box-shadow: none; }
+    .no-print { display: none !important; }
+    @page { size: A4; margin: 0; }
+    a { color: #1a1a1a; }
+  }
+  .proj-head .right a {
+    display: inline-block;
+    padding: 3px 8px;
+    margin-left: 6px;
+    border: 1px solid #2563eb;
+    border-radius: 4px;
+    color: #2563eb;
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.proj-head .right a:hover {
+    background: #2563eb;
+    color: #fff;
+    text-decoration: none;
+}
+</style>
+</head>
+<body>
+
+<div class="page">
+  <header>
+    <h1>SANESH KUMAR</h1>
+    <p class="role">Full-Stack Developer (MERN)</p>
+    <p class="contact">
+      Lakhisarai, Bihar, India &nbsp;|&nbsp;
+      <a href="mailto:sanesh7644@gmail.com">sanesh7644@gmail.com</a> &nbsp;|&nbsp;
+      +91-7644967283
+      <br />
+      <a href="https://linkedin.com/in/sanesh7644">linkedin.com/in/sanesh7644</a> &nbsp;|&nbsp;
+      <a href="https://github.com/Sanesh764">github.com/Sanesh764</a> &nbsp;|&nbsp;
+      Portfolio:
+    <a href="https://main.d3add5rrxtdy8u.amplifyapp.com/" target="_blank">
+      Portfolio ↗
+    </a>
+    </p>
+  </header>
+
+  <h2>Summary</h2>
+  <p>
+    Full-stack developer specializing in the MERN stack with hands-on experience building secure, tested, and
+    production-deployed web applications, including an AI-powered job-application platform. Strong in REST API design,
+    authentication (JWT/RBAC), LLM integration, automated testing, and Docker-based CI/CD on AWS. 200+ DSA problems
+    solved. Seeking a full-stack / backend engineering role.
+  </p>
+
+  <h2>Skills</h2>
+  <div class="skills-line"><b>Languages:</b> JavaScript (ES6+), C++, SQL</div>
+  <div class="skills-line"><b>Frontend:</b> React.js, HTML5, CSS3, Tailwind CSS, Bootstrap, EJS</div>
+  <div class="skills-line"><b>Backend:</b> Node.js, Express.js, RESTful APIs, Socket.io (real-time)</div>
+  <div class="skills-line"><b>Databases:</b> MongoDB, MongoDB Atlas, Mongoose, NoSQL Schema Design</div>
+  <div class="skills-line"><b>Auth/Security:</b> JWT, Passport.js, BCrypt, RBAC, Session Management</div>
+  <div class="skills-line"><b>DevOps/Cloud:</b> Docker, GitHub Actions (CI/CD), AWS EC2, AWS S3, Cloudinary, Render</div>
+  <div class="skills-line"><b>AI Integration:</b> LLM APIs (Gemini, OpenAI-compatible), Multi-Provider Orchestration</div>
+  <div class="skills-line"><b>Testing:</b> Jest, Supertest, Unit / Integration / API Testing</div>
+  <div class="skills-line"><b>Tools:</b> Git, Postman, Vite, Mapbox</div>
+  <div class="skills-line"><b>Architecture:</b> MVC, Middleware Design, Server-side Validation (Joi/Zod), RESTful Routing</div>
+  <div class="skills-line"><b>DSA:</b> 200+ LeetCode problems — Arrays, DP, Graphs, Trees, Greedy, Backtracking</div>
+
+  <h2>Professional Experience</h2>
+  <div class="job-head">
+    <span class="left">Maincrafts Technology — Full-Stack Developer Intern</span>
+    <span class="right">Remote | Jan 2026 – Present</span>
+  </div>
+  <ul>
+    <li>Designed and shipped <span class="ph">[12]+</span> secured REST endpoints in Node.js/Express with JWT authentication and role-based access control (RBAC), passing <span class="ph">90%</span> of security test cases across dev, staging, and production.</li>
+    <li>Profiled and indexed high-frequency MongoDB queries using Mongoose compound indexes, cutting p95 API latency by <strong>20%</strong> under load testing.</li>
+    <li>Containerized and deployed the application with Docker on Render, standardizing dev/staging/prod environments and removing deployment-related bugs.</li>
+    <li>Added Joi-based middleware validation and session management, reducing invalid-request errors by <strong>30%</strong> and improving data integrity.</li>
+  </ul>
+
+  <h2>Projects</h2>
+ <div class="proj-head">
+  <span class="left">ApplyHub — AI-Powered Job Application Platform</span>
+  <span class="right">
+    <a href="https://github.com/Sanesh764/APPLYHUB" target="_blank">🔗 GitHub</a> |
+    <a href="https://main.ddzv29gajckkr.amplifyapp.com" target="_blank">🌐 Live Demo</a>
+  </span>
+</div>
+
+<div class="stack">
+  React · Node.js · Express.js · MongoDB · JWT · LLM APIs · Cloudinary · Docker
+</div>
+
+<ul>
+  <li>Built a full-stack MERN platform that parses resumes, scores ATS compatibility, and generates tailored cover letters using a <strong>multi-provider LLM orchestration layer</strong> (NVIDIA → DeepSeek → Gemini) with automatic failover.</li>
+
+  <li>Implemented secure authentication with <strong>JWT access/refresh token rotation</strong>, phone-OTP and email verification, RBAC, and multi-device session management.</li>
+
+  <li>Aggregated live job listings from <strong>5+ external APIs</strong> (Adzuna, Greenhouse, Lever, Arbeitnow, Remotive) and computed hybrid resume-to-job match scores for ranked search results.</li>
+
+  <li>Engineered a <strong>centralized error-handling architecture</strong> (custom error classes, async wrappers, standardized JSON responses) with rate limiting, Helmet security headers, and Winston audit logging.</li>
+</ul>
+
+<div class="proj-head">
+  <span class="left">EcoRecycle — Full-Stack E-Waste Management Platform</span>
+  <span class="right">
+    <a href="https://github.com/Sanesh764/-EcoRecycle" target="_blank">🔗 GitHub</a> |
+    <a href="https://eco-recycle-three.vercel.app/" target="_blank">🌐 Live Demo</a>
+  </span>
+</div>
+
+<div class="stack">
+  Node.js · Express.js · MongoDB · Docker · Jest · GitHub Actions
+</div>
+
+<ul>
+  <li>Architected an MVC e-waste management platform with BCrypt-hashed authentication and session-based state persistence.</li>
+
+  <li>Achieved <strong>90%+ code coverage</strong> with Jest and Supertest across unit, integration, and API-level test suites.</li>
+
+  <li>Delivered zero-downtime deployments on AWS EC2 via Docker containerization and a GitHub Actions CI/CD pipeline (build → test → deploy on every push to main).</li>
+
+  <li>Reduced average list-query response time from <span class="ph">[480 ] ms</span> to <span class="ph">[220] ms</span> by indexing high-frequency query fields.</li>
+</ul>
+
+  <h2>Education</h2>
+  <div class="job-head">
+    <span class="left">Government Engineering College, Lakhisarai</span>
+    <span class="right">Bihar, India | 2023 – 2027</span>
+  </div>
+  <p style="margin-top:2px;">B.Tech in Computer Science and Engineering — <strong>CGPA: 8.2 / 10.0</strong></p>
+
+  <h2>Certifications</h2>
+  <ul>
+    <li class="ph">
+  <div>AWS Solutions Architecture Job Simulation | Forage | January 2026</div>
+  <div>AI Foundations | OpenAI Academy | June 2026</div>
+</li>
+  </ul>
+
+  <h2>Achievements</h2>
+  <ul>
+    <li><strong>Google H2S Solution Challenge (Under-30 Cohort):</strong> Selected among <span class="ph">[X]</span> national applicants; built <span class="ph">[built an AI-powered waste management platform]</span> to address <span class="ph">[address e-waste management challenges]</span>, reaching <span class="ph">[Regional Round Top 100
+Finalist]</span>.</li>
+    <li>
+  <strong>LeetCode:</strong>
+  Solved 200+ DSA problems across arrays, dynamic programming, graphs, trees, greedy, and backtracking.
+  <a href="https://leetcode.com/u/Sanesh764/" target="_blank">LeetCode ↗</a>
+</li>
+  </ul>
+</div>
+
+<div class="no-print">
+  <button class="print-btn" onclick="window.print()">🖨️  Save as PDF (Print → Destination: Save as PDF)</button>
+  <p class="hint">Red text = placeholders you must fill in before sending. In the print dialog choose <b>A4</b> and <b>Margins: Default</b> for a clean ATS PDF.</p>
+</div>
+
+</body>
+</html>
